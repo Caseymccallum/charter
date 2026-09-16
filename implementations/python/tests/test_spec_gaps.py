@@ -165,5 +165,43 @@ class IntegerSpellingTest(unittest.TestCase):
         self.assertEqual(fails(data), {"L0.MANIFEST.PARSE": "NON_INTEGER_NUMBER"})
 
 
+class AbsentValueTest(unittest.TestCase):
+    """A value that is absent, and the reason code the vocabulary has for it.
+
+    The probe `log-line-not-canonical` carries an entry with no `content_sha256`
+    at all, and the two implementations answer it identically — so this is not a
+    disagreement, it is a place where the answer is worth reading twice.
+    `L0.PROVENANCE.CONTENT_HASH_FORMAT` reports NON_CANONICAL_ENCODING, and SPEC
+    section 10 defines that as "a field encoding is not the canonical encoding of
+    the value it carries", while the check's own sentence says "entry 1's
+    content_sha256 is absent (MISSING)". The vocabulary has MISSING, and section
+    5's table of spellings has nothing to say about a value that is not there.
+
+    Freezing it here is the point of committing the probe: an absent digest has
+    one recorded answer, both readings of the spec produce it, and a later
+    release that reported MISSING instead would have to change the record, this
+    test, and the sentence in section 5 that explains which code means what —
+    together, in the open, rather than by accident.
+
+    The two sentences differ and that is allowed: the reference says "entry 1's
+    content_sha256 is absent (MISSING)" and this port says "line 1 declares
+    content_sha256 None, which is not the one spelling of a SHA-256 digest". Both
+    name the field and both point at the same rule, which is what section 10
+    requires of prose; only the code is fixed, and both produce the same one.
+    """
+
+    def test_an_absent_digest_is_reported_as_a_spelling_problem(self) -> None:
+        data = with_log(b'{"action": "create"}\n')
+        self.assertEqual(
+            fails(data),
+            {
+                "L0.PROVENANCE.CANONICAL": "NON_CANONICAL",
+                "L0.PROVENANCE.FIELDS": "MALFORMED",
+                "L0.PROVENANCE.CONTENT_HASH_FORMAT": "NON_CANONICAL_ENCODING",
+            },
+        )
+        self.assertEqual(check(data, "L0.PROVENANCE.CONTENT_HASH_FORMAT").status, "FAIL")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Charter — read a .charter file</title>
+<!-- An empty data: URL, so the browser makes no favicon request either: the
+     page asks for its own modules and for nothing else. -->
+<link rel="icon" href="data:,">
+<!--
+  A demonstration of the format, not a product: one static page, no bundler, no
+  dependency, and no request to anywhere. It shows what a `.charter` file claims
+  and whether the claim holds, using the verifier and the writers in
+  ../verifier/ — the same code `charter verify` and `charter seal` run.
+
+  It has to be opened over http, and that is the browser's rule rather than a
+  choice made here: Chrome, Edge, Firefox and Safari all refuse to load an ES
+  module from a `file://` page ("Access to script ... from origin 'null' has been
+  blocked by CORS policy"). `node editor/serve.mjs` serves this directory on
+  loopback and opens it; `python -m http.server` does the same. Nothing is sent
+  anywhere: the page asks for its own modules, and for nothing else.
+-->
+<style>
+  :root {
+    --ink: #1c1e21;
+    --muted: #5b6169;
+    --line: #d8dbe0;
+    --paper: #fbfbfc;
+    --panel: #ffffff;
+    --pass: #1b6f3a;
+    --fail: #a52121;
+    --skip: #6b5b00;
+    --unsupported: #6b3fa0;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  header, main { padding: 20px clamp(16px, 4vw, 48px); }
+  header { border-bottom: 1px solid var(--line); background: var(--panel); }
+  h1 { margin: 0 0 4px; font-size: 22px; letter-spacing: -0.01em; }
+  h2 { margin: 0 0 10px; font-size: 15px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+  h3 { margin: 18px 0 6px; font-size: 14px; }
+  p { margin: 0 0 8px; }
+  .lede { color: var(--muted); max-width: 78ch; }
+  .notice { margin: 12px 0 0; padding: 10px 12px; border-left: 3px solid var(--fail); background: #fdf3f3; max-width: 90ch; }
+  code, pre, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace; }
+  code { background: #f1f2f4; padding: 1px 4px; border-radius: 3px; font-size: 0.92em; }
+  .columns { display: grid; gap: 20px; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); align-items: start; }
+  @media (max-width: 1000px) { .columns { grid-template-columns: minmax(0, 1fr); } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
+  .panel + .panel { margin-top: 20px; }
+  .dropzone { border: 2px dashed var(--line); border-radius: 8px; padding: 22px; text-align: center; background: var(--panel); margin-bottom: 20px; }
+  .dropzone.over { border-color: var(--ink); background: #f4f6f8; }
+  .dropzone p { color: var(--muted); }
+  input[type=file] { margin-top: 10px; }
+  .verdict { font-size: 30px; font-weight: 650; letter-spacing: -0.02em; margin: 0; }
+  .verdict-verified { color: var(--pass); }
+  .verdict-broken, .reasons { color: var(--fail); }
+  .verdict-incomplete { color: var(--skip); }
+  .counts, .reasons { font-size: 13px; }
+  .counts { color: var(--muted); }
+  ul { list-style: none; margin: 0; padding: 0; }
+  .check { border-top: 1px solid var(--line); padding: 6px 0; }
+  .check p { margin: 0; display: flex; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+  .status { font-weight: 650; font-size: 12px; letter-spacing: 0.04em; min-width: 12ch; }
+  .check-pass .status { color: var(--pass); }
+  .check-fail .status, .status-fail, .defect { color: var(--fail); }
+  .check-skip .status { color: var(--skip); }
+  .check-unsupported .status { color: var(--unsupported); }
+  .id { font-size: 13px; }
+  .reason, .level { font-size: 12px; color: var(--muted); }
+  details summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+  .detail { font-size: 13px; margin: 6px 0 0; }
+  .requirement { font-size: 13px; color: var(--muted); margin: 4px 0 0; }
+  .content { margin: 0; padding: 12px; background: #f7f8f9; border: 1px solid var(--line); border-radius: 6px; white-space: pre-wrap; word-break: break-word; max-height: 60vh; overflow: auto; }
+  .muted, .note { color: var(--muted); font-size: 13px; }
+  table { border-collapse: collapse; width: 100%; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+  .digest, .index, .caveat-id { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+  .aside { color: var(--muted); font-size: 11px; }
+  .caveat { border-top: 1px solid var(--line); padding: 8px 0; font-size: 13px; }
+  .caveat-id { font-size: 11px; color: var(--muted); margin: 0 0 2px; }
+  .json { margin: 8px 0 0; padding: 12px; background: #f7f8f9; border: 1px solid var(--line); border-radius: 6px; font-size: 12px; max-height: 50vh; overflow: auto; }
+  fieldset { border: 1px solid var(--line); border-radius: 6px; margin: 0 0 14px; padding: 10px 12px; }
+  legend { font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); padding: 0 4px; }
+  label { display: block; font-size: 13px; margin: 0 0 6px; }
+  input[type=text], textarea { width: 100%; font: inherit; font-size: 14px; padding: 6px 8px; border: 1px solid var(--line); border-radius: 4px; background: #fff; }
+  textarea { min-height: 150px; resize: vertical; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  button { font: inherit; padding: 10px 18px; border-radius: 4px; border: 1px solid var(--ink); background: var(--ink); color: #fff; cursor: pointer; }
+  button.secondary { background: #fff; color: var(--ink); }
+  .message { margin: 12px 0 0; font-size: 13px; }
+  .message-done { color: var(--pass); }
+  .message-fail { color: var(--fail); white-space: pre-wrap; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Charter</h1>
+  <p class="lede">
+    A <code>.charter</code> file carries a document, a key, and a signed history, and it makes three claims:
+    these are the bytes, these signatures were made by the key the file carries, and this history is continuous
+    with that document. This page shows what a file claims and whether the claim holds, using the verifier in
+    <code>../verifier/</code> — the same code <code>charter verify</code> runs. It is a demonstration of the
+    format, not an editor to keep your notes in: nothing is stored, nothing is synced, and nothing is sent
+    anywhere.
+  </p>
+  <p class="notice" id="notice" hidden></p>
+</header>
+<main>
+  <section class="dropzone" id="dropzone">
+    <p><strong>Drop a <code>.charter</code> file here</strong>, or choose one:</p>
+    <input type="file" id="file" accept=".charter,application/octet-stream">
+    <p class="note">Try <code>vectors/out/valid.charter</code>, <code>content-tampered.charter</code>, or <code>history-rewritten.charter</code>.</p>
+  </section>
+
+  <div class="columns">
+    <div>
+      <section class="panel">
+        <h2 id="document-name">No file yet</h2>
+        <p id="empty" class="muted">Nothing has been read. The page reads a file the way the verifier does: bytes in, verdict out, and the document the verdict is about beside it.</p>
+        <div id="shown" hidden>
+          <h3>content.md</h3>
+          <div id="content"></div>
+          <p class="note" id="content-note"></p>
+          <h3>provenance.jsonl</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>#</th><th>action</th><th>author</th><th>timestamp</th><th>content_sha256</th><th>parent</th><th>signature</th><th>verifier</th>
+              </tr>
+            </thead>
+            <tbody id="entries"></tbody>
+          </table>
+          <p class="note" id="entries-note"></p>
+          <details>
+            <summary id="json-title">The verdict as JSON</summary>
+            <div id="json"></div>
+          </details>
+        </div>
+      </section>
+
+      <section class="panel">
+        <h2>Seal a document</h2>
+        <p class="note">
+          Write mode seals a new file: one entry, action <code>create</code>, signed with a key you supply here.
+          charter/0.1 has no verb for appending to a history, and neither does the command line.
+        </p>
+        <p class="note" id="w-seeded"></p>
+        <fieldset>
+          <legend>content.md</legend>
+          <textarea id="w-content" spellcheck="false" placeholder="The document. The bytes of this file are the content: they are digested, signed, and never rewritten."></textarea>
+        </fieldset>
+        <fieldset>
+          <legend>key</legend>
+          <label for="w-key-file">a PKCS#8 PEM file (Ed25519)</label>
+          <input type="file" id="w-key-file" accept=".pem,.key,.txt">
+          <label for="w-key-text">or paste one</label>
+          <textarea id="w-key-text" spellcheck="false" placeholder="-----BEGIN PRIVATE KEY-----"></textarea>
+          <p class="note" id="w-key-readout"></p>
+          <p class="note">
+            The key is read in this page and held in memory while you work: not stored, not written to
+            <code>localStorage</code>, not remembered when the page closes. Holding a private key is your
+            decision each time, which is why there is no "remember this key".
+          </p>
+        </fieldset>
+        <fieldset>
+          <legend>claims</legend>
+          <label for="w-title">title (manifest.title is a non-empty string)</label>
+          <input type="text" id="w-title" placeholder="What this document is called">
+          <label for="w-author">author name</label>
+          <input type="text" id="w-author">
+          <label for="w-summary">first entry summary</label>
+          <textarea id="w-summary" style="min-height:60px"></textarea>
+          <p class="note">The command line derives a title from the document when none is stated (SPEC.md 15.3). This page does not derive one: it takes what you state.</p>
+        </fieldset>
+        <fieldset>
+          <legend>time</legend>
+          <label><input type="radio" name="w-time" id="w-time-none" checked> no time stated</label>
+          <div class="row">
+            <label><input type="radio" name="w-time" id="w-time-stated"> the time I state</label>
+<script>
+  // The browser refuses to load a module from a `file://` page, so the module
+  // below never runs and no verdict could appear. Saying that plainly beats an
+  // empty page and a console error nobody will read.
+  if (location.protocol === 'file:') {
+    var notice = document.getElementById('notice');
+    notice.hidden = false;
+    notice.textContent =
+      'This page was opened from a file:// address, and browsers do not load ES modules from file:// — ' +
+      'so ../verifier/ could not be imported and no file can be verified here. Serve the directory over http ' +
+      'instead:  node editor/serve.mjs   (or: python -m http.server) — both serve this page and its modules ' +
+      'from your own machine, and nothing is sent anywhere.';
+  }
+</script>
+<script type="module">
+  import { start } from './editor.js';
+  start();
+</script>
+</body>
+</html>
+
+            <input type="text" id="w-time-text" placeholder="YYYY-MM-DDTHH:MM:SSZ" style="flex:1 1 18ch; min-width:18ch">
+            <button type="button" class="secondary" id="w-time-now">now</button>
+          </div>
+          <p class="note" id="w-time-readout"></p>
+        </fieldset>
+        <button type="button" id="seal">Seal and download</button>
+        <p class="message" id="w-message"></p>
+      </section>
+    </div>
+
+    <div>
+      <section class="panel">
+        <h2>Verdict</h2>
+        <div id="verdict-pane"><p class="muted">No verdict yet.</p></div>
+      </section>
+      <section class="panel">
+        <h2 id="checks-title">Checks</h2>
+        <ul id="checks"></ul>
+      </section>
+      <section class="panel">
+        <h2>What this verdict does not mean</h2>
+        <ul id="caveats"></ul>
+      </section>
+    </div>
+  </div>
+</main>

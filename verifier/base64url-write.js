@@ -14,7 +14,14 @@
  * decoded there, must come back unchanged — which is the round-trip rule this
  * project applies wherever one value has two directions.
  *
- * @module producer/base64url
+ * Two writers encode these bytes: the producer, which signs a manifest for a
+ * file, and the editor, which signs one in a page. Both take the alphabet and
+ * the rule from here rather than from a copy of it, which is why this module
+ * sits in the directory a browser may import. Nothing the reading path imports
+ * can reach it: `test/purity.test.js` walks the imports of `verify.js` and
+ * refuses the run if that ever changes.
+ *
+ * @module verifier/base64url-write
  */
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';

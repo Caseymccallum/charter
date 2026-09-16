@@ -125,6 +125,38 @@ test('the serializer shares the specification with the reader and no code', () =
   }
 });
 
+/**
+ * The reading path may not reach a writer.
+ *
+ * `verifier/**` holds two modules that only a writer calls: the ZIP writer and
+ * the base64url encoder. They are here because they are shared by every writer
+ * this project has — the producer, and the editor that runs in a page — and a
+ * directory a browser may not import cannot hold shared code. What must stay
+ * true is that a verdict never depends on them: a verifier that read its own
+ * writing code would be able to agree with itself about a byte sequence the
+ * format does not define. So the imports are walked from the one entry point a
+ * verdict comes from, and a writer on that path is a failure, not a warning.
+ */
+test('the reading path never reaches the writers that share this directory', () => {
+  const WRITERS = ['zip-write.js', 'base64url-write.js', 'refuse.js'];
+  const reachable = new Set();
+  /** @type {string[]} */
+  const queue = ['verify.js'];
+  while (queue.length > 0) {
+    const name = queue.pop();
+    if (name === undefined || reachable.has(name)) continue;
+    reachable.add(name);
+    for (const specifier of readFileSync(join(VERIFIER, name), 'utf8').matchAll(/\bfrom\s+['"](\.\/[^'"]+)['"]/g)) {
+      queue.push(specifier[1].slice(2));
+    }
+  }
+  assert.ok(reachable.has('bytes.js'), 'the walk must actually follow imports');
+  for (const writer of WRITERS) {
+    assert.equal(reachable.has(writer), false, `${writer} is reachable from verify.js, so a verdict would depend on a writer`);
+  }
+});
+
+
 test('the file system is touched by the command line and the kit, and nowhere else', () => {
   /** @type {string[]} */
   const users = [];

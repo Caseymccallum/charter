@@ -13,34 +13,35 @@
  * which is the producer's half of the rule `verifier/result.js` enforces for
  * check ids: a name that is not in the registry is a bug, not a new failure.
  *
+ * # `ProducerError` is a subclass, and that is on purpose
+ *
+ * `RefusalError` in `verifier/refuse.js` is the shared class, because the
+ * producer is not the only thing in this project that writes: the ZIP writer
+ * refuses from inside `verifier/**` (a page may import it, so it may not import
+ * this file), and the editor refuses in the same vocabulary from a browser.
+ * `ProducerError` stays, because "the producer refused" is a different fact
+ * from "a writer refused": a caller that wants the narrower one can ask for it,
+ * and one that wants either can catch `RefusalError`.
+ *
  * @module producer/errors
  */
 
-import { REASON } from '../verifier/status.js';
-
-const VOCABULARY = new Set(Object.values(REASON));
+import { isReasonCode, RefusalError } from '../verifier/refuse.js';
 
 /**
- * A refusal the producer can name. Extends `Error` rather than `TypeError`:
- * these are not all type errors. A key of the wrong algorithm and a content
- * file that is not UTF-8 are both well-typed inputs this format has no way to
- * write, and they are reported as such.
+ * A refusal the producer can name.
+ *
+ * @augments RefusalError
  */
-export class ProducerError extends Error {
+export class ProducerError extends RefusalError {
   /**
    * @param {string} reason_code from the vocabulary in `verifier/status.js`
    * @param {string} detail what is wrong, in prose, for a person
    * @param {string} [path] the field or file the refusal is about
    */
   constructor(reason_code, detail, path = '') {
-    super(detail);
+    super(reason_code, detail, path);
     this.name = 'ProducerError';
-    /** @type {string} */
-    this.reason_code = reason_code;
-    /** @type {string} */
-    this.detail = detail;
-    /** @type {string} */
-    this.path = path;
   }
 }
 
@@ -53,7 +54,7 @@ export class ProducerError extends Error {
  * @returns {never}
  */
 export function refuse(reason_code, detail, path = '') {
-  if (!VOCABULARY.has(reason_code)) {
+  if (!isReasonCode(reason_code)) {
     throw new TypeError(`the producer refused with "${reason_code}", which is not a reason code this format defines`);
   }
   throw new ProducerError(reason_code, detail, path);

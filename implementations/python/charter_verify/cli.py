@@ -36,11 +36,36 @@ Exit codes:
 """
 
 
+def _write_utf8() -> None:
+    """Write UTF-8 whatever the stream was opened with.
+
+    A verdict carries text the artifact chose: a title, an author name, the prose
+    of a check. The format fixes UTF-8 for every byte of a `.charter` file, so a
+    reader that printed those bytes through the host's locale would be the one
+    place in the project where the encoding of a verdict depends on the machine.
+    On Windows it also fails outright: with stdout redirected to a pipe, Python
+    encodes text with the console code page (cp1252 by default) and raises on the
+    first character that is not in it — which is how the differential probe found
+    this, on an artifact whose title is U+1F600. Nothing in the 54 recorded
+    fixtures reaches it, because all of their titles are ASCII.
+
+    The reference writes UTF-8 through `process.stdout.write`, and the two
+    implementations have to be able to be compared, so this one writes UTF-8 too.
+    A stream that cannot be reconfigured (a test that swapped `sys.stdout` for a
+    string buffer) is left alone: it has no code page to be wrong about.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None and getattr(stream, "encoding", None) not in (None, "utf-8", "UTF-8"):
+            reconfigure(encoding="utf-8")
+
+
 def main(argv=None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     path = None
     as_json = False
     show_all = False
+    _write_utf8()
     for argument in arguments:
         if argument == "--json":
             as_json = True

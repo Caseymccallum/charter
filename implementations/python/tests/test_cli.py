@@ -11,12 +11,13 @@ import json
 import pathlib
 import subprocess
 import sys
+import tempfile
 import unittest
 
 from charter_verify import checks
 from charter_verify.vocabulary import EXIT_UNREADABLE, EXIT_USAGE
 
-from .support import FIXTURES, VECTORS
+from .support import FIXTURES, VECTORS, manifest_change
 
 HERE = pathlib.Path(__file__).resolve().parents[1]
 
@@ -57,6 +58,41 @@ class ExitCodeTest(unittest.TestCase):
 
     def test_help_is_not_a_failure(self) -> None:
         self.assertEqual(run("--help").returncode, 0)
+
+
+class OutputEncodingTest(unittest.TestCase):
+    """A verdict carries text the artifact chose, and it leaves as UTF-8.
+
+    SPEC section 4 fixes UTF-8 for every byte of a `.charter` file, so a reader
+    that printed those bytes through the host's locale would be the one place in
+    this project where the encoding of a verdict depends on the machine. On
+    Windows that is not a subtlety, it is a failure: with stdout redirected, the
+    text layer encodes with the console code page (cp1252 by default) and raises
+    on the first character outside it, so the verdict arrives empty.
+
+    The differential probe found it, and only it could have: an artifact whose
+    title is U+1F600, asked through a pipe. No fixture in the kit reaches it, and
+    neither did this suite until the probe's artifacts were committed.
+    """
+
+    def test_a_title_outside_the_host_code_page_survives_a_pipe(self) -> None:
+        title = "a title with \U0001f600 in it"
+        data = manifest_change(lambda value: value.__setitem__("title", title))
+        with tempfile.TemporaryDirectory() as work:
+            path = pathlib.Path(work) / "astral.charter"
+            path.write_bytes(data)
+            # `capture_output` is the pipe, and the bytes are decoded here rather
+            # than by the host: `text=True` would decode the child's UTF-8 with
+            # this process's locale, which is the same mistake on the other side.
+            completed = subprocess.run(
+                [sys.executable, "-m", "charter_verify", str(path), "--json"],
+                cwd=HERE,
+                capture_output=True,
+            )
+        self.assertEqual(completed.returncode, 2)
+        verdict = json.loads(completed.stdout.decode("utf-8"))
+        self.assertEqual(verdict["artifact"]["title"], title)
+        self.assertEqual(verdict["verdict"], "BROKEN")
 
 
 class ShapeTest(unittest.TestCase):

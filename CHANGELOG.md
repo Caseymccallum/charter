@@ -4,6 +4,100 @@ Recorded because they are decisions about published behaviour, not internal
 tidying. The format identifier in `manifest.format` changes when section 14 of
 [SPEC.md](SPEC.md) changes; this file records what changed, when, and why.
 
+## Unreleased — the probe, and the editor
+
+The format is unchanged, and so is every recorded answer: the 54 verdicts in
+`vectors/expected.json` are the ones they were, and `node vectors/run.js` still
+replays 54 of 54. What was added is the differential probe and its fixtures,
+which turns the claim "20 hand-built artifacts agree" into something a fresh
+clone can re-run; `editor/`, which shows the format's claim in a browser; and two
+moves inside the implementation, so that a second browser-safe writer can write
+what the first one writes instead of writing its own.
+
+### The probe is committed, and it is a program rather than a paragraph
+
+`vectors/probe/` holds 20 artifacts, the answers the reference command line gives
+for them, and `vectors/probe/run.js`, which asks the reference and the Python
+implementation and compares both with the record — the five things the kit
+compares, each artifact's length and digest first, and the Python leg skipped
+with a sentence on a machine that has no interpreter rather than failing. The
+recipes and the record builder are in `implementations/python/tools/probe.py`,
+which refuses to write a record whose answer contradicts the question the case
+asks: an artifact whose recorded answer is not the answer the format requires is
+a broken fixture, and settling that is a job for SPEC.md rather than for a record
+overwrite.
+
+Committing it found two things the scratch run in `%TEMP%` could not. A log entry
+with **no** `content_sha256` is reported as `NON_CANONICAL_ENCODING`, whose
+definition is a value spelled a second way, while the reference's own sentence
+for the same failure says the value is absent — and the vocabulary has MISSING
+for exactly that. Both implementations agree, so it is not a divergence; it is a
+place where section 10's vocabulary and one check's wording could be brought
+together, and `implementations/python/tests/test_spec_gaps.py` freezes the answer
+so that a later change has to be made deliberately. And the port's CLI wrote a
+verdict as **nothing at all** when its stdout was a pipe and the artifact's title
+was U+1F600: on Windows, Python encodes text with the console code page when it
+is not writing to a console, and raises on the first character outside it. The
+reference never noticed, because `process.stdout.write` is UTF-8. `cli.py` now
+writes UTF-8 explicitly, and `implementations/python/tests/test_cli.py` holds it
+there. Neither is a change to the format: the first is written down and frozen,
+the second was a bug in a program, which is the other thing a differential
+harness is for.
+
+### Two writers moved into `verifier/**`, and why the directory allows it
+
+`producer/zip-write.js` is now `verifier/zip-write.js` and `producer/base64url.js`
+is now `verifier/base64url-write.js`, with one new module beside them,
+`verifier/refuse.js`, which is the writing half's way of refusing with a name from
+the shared vocabulary. The editor seals documents in a page, so it needs a
+container writer and a base64url encoder, and it may not import `producer/**`:
+that directory holds `node:crypto` and the file system, and a page cannot load
+either. The alternative was a second ZIP writer and a second base64url encoder,
+which is a second place for the container's rules to be written down. So the
+shared halves live where a browser can reach them, and the rule that keeps the
+verifier honest is now stated rather than implied: `test/purity.test.js` walks the
+imports of `verify.js` and fails the run if a writer is reachable from a verdict.
+The producer is unchanged in what it writes — every sealed file is the same bytes
+— and `test/producer.test.js` now says which refusals are the producer's and which
+are the shared writer's. `git diff -- verifier/` is no longer 0 lines, for the
+first time since the verifier was frozen; the 54 recorded answers are, byte for
+byte, unaffected.
+
+### The editor is a demonstration, and it is held to that
+
+`editor/index.html` shows a `.charter` file's claim beside the document it is
+about: the verdict, every check with its reason code, the content as the bytes
+are, the history with its timestamps marked as claims, and the five statements of
+what a `VERIFIED` verdict does not mean — so that `history-rewritten`, which
+verifies and is a rewritten history, says both things on one screen. The write
+pane seals one document with a key the user pastes, using Web Crypto for the
+signature and the verifier's own writers for everything else.
+
+It has no sync, no account, no store, no key storage, no build step, no
+dependency, and no network request, and `test/editor.test.js` asserts all of that
+statically and then runs the page in a headless browser: all 54 artifacts through
+the browser's copy of the verifier with every check status compared, the read pane
+on four fixtures, and a seal whose bytes are compared with the bytes
+`charter seal` writes for the same inputs — which are the same bytes, and also the
+same bytes Chrome, Edge and Firefox each produced independently of the command
+line.
+
+One thing it needs that the brief did not expect: **a page that imports
+`verifier/**` cannot be opened from `file://`.** Chrome 153 refuses it — "Cross
+origin requests are only supported for protocol schemes: chrome,
+chrome-extension, chrome-untrusted, data, http, https, isolated-app" — and so does
+every other browser that implements modules. The fix is not a bundler and not a
+copy of the verifier inside the page: `editor/serve.mjs` is a sixty-line courier
+that serves this repository on loopback, the page says so in the browser's own
+words when it is opened from `file://`, and `python -m http.server` works just as
+well. No module was added to the format's implementation for it.
+
+### The README's list of deliberate absences lost one line
+
+"An editor" was on it. It is not any more: an editor exists, it is `editor/`, and
+the row now says what it is instead — one static page that reads and seals a file,
+stores nothing, and could not be a product if it tried.
+
 ## Unreleased — charter/0.1, a second reading
 
 The format is unchanged, and so is every recorded answer: the 54 verdicts in

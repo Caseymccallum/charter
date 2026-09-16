@@ -28,21 +28,22 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { encodeBase64Url } from '../producer/base64url.js';
 import { ProducerError, refuse } from '../producer/errors.js';
 import { loadKey, signBytes } from '../producer/key.js';
 import { readCharter } from '../producer/read.js';
 import { FIRST_ACTION, seal } from '../producer/seal.js';
 import { deriveTitle, titleFromPath, TITLE_ORIGINS } from '../producer/title.js';
-import { zipStore } from '../producer/zip-write.js';
 import { decodeBase64Url } from '../verifier/base64url.js';
+import { encodeBase64Url } from '../verifier/base64url-write.js';
 import { utf8Encode } from '../verifier/bytes.js';
 import { parseJsonBytes } from '../verifier/canonical.js';
 import { canonicalDocument, signingInput } from '../verifier/canonical-write.js';
 import { LIMITS } from '../verifier/limits.js';
 import { ACTIONS, parseLine, splitLines } from '../verifier/provenance.js';
+import { RefusalError } from '../verifier/refuse.js';
 import { REASON } from '../verifier/status.js';
 import { verify } from '../verifier/verify.js';
+import { zipStore } from '../verifier/zip-write.js';
 import { parseArchive, readEntryData } from '../verifier/zip.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -654,8 +655,12 @@ test('the producer directory holds the modules it says it holds', () => {
     assert.ok(text.includes('@module producer/'), `${module} must declare itself with a @module tag`);
   }
   // The modules that need what the format defines take it from the verifier
-  // rather than restating it, which is what keeps one specification in one place.
-  for (const module of ['seal.js', 'read.js', 'key.js', 'cite.js', 'zip-write.js']) {
+  // rather than restating it, which is what keeps one specification in one
+  // place. The ZIP writer and the base64url writer are not in this list anymore
+  // because they are not in this directory anymore: both moved to `verifier/**`
+  // when a second writer — the editor, which runs in a page — had to import
+  // them, and a directory a browser may not import cannot hold shared code.
+  for (const module of ['seal.js', 'read.js', 'key.js', 'cite.js']) {
     const text = readFileSync(join(PRODUCER_DIR, module), 'utf8');
     assert.ok(text.includes("from '../verifier/"), `${module} must take the format from verifier/**, not restate it`);
   }
@@ -753,9 +758,14 @@ test('the producer refuses to write an artifact the verifier would refuse to rea
   assert.equal(error.reason_code, REASON.LIMIT_EXCEEDED);
   assert.equal(error.path, 'manifest.json');
 
+  // The ZIP writer's refusal is the shared one, not the producer's: the writer
+  // lives in `verifier/**` and may not import the producer's error class. Both
+  // are refusals with a reason code from the same vocabulary, which is the
+  // property that matters; which class it is says who refused.
   assert.throws(
     () => zipStore([{ name: 'content.md', data: new Uint8Array(8) }], { ...LIMITS, MAX_ENTRY_BYTES: 4 }),
-    ProducerError,
+    RefusalError,
     'an entry above the declared ceiling is refused rather than written',
   );
+  assert.ok(new ProducerError(REASON.MISSING, 'a detail') instanceof RefusalError, 'the producer adds a name to the shared refusal rather than replacing it');
 });

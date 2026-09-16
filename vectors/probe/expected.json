@@ -1,0 +1,466 @@
+{
+  "probe": "charter differential probes",
+  "format": "charter/0.1",
+  "built_by": "implementations/python/tools/probe.py --build",
+  "note": "The answers in this file are the reference command line's, recorded as a black box by implementations/python/tools/probe.py --build. Each case carries the question it asks (`asked`) and the answer the reference gave (`expected`); vectors/probe/run.js replays both against the reference and, when a Python interpreter is installed, against implementations/python.",
+  "cases": [
+    {
+      "name": "zero-lead",
+      "file": "out/zero-lead.charter",
+      "bytes": 1895,
+      "sha256": "877c60f688f4950acbdf699085e7f77909a98b10705133c2e27fdf4a0fa25584",
+      "probe": "An integer written with a leading zero. SPEC.md 4.1 names `01` a NON_INTEGER_NUMBER; a manifest has no integer field, so one is appended beside an extra field, and the parse is the check that reads it.",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.MANIFEST.PARSE": "NON_INTEGER_NUMBER"
+        }
+      },
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.MANIFEST.PARSE": "NON_INTEGER_NUMBER"
+        },
+        "unsupported": {},
+        "skips": 11
+      }
+    },
+    {
+      "name": "escape-upper-hex",
+      "file": "out/escape-upper-hex.charter",
+      "bytes": 1865,
+      "sha256": "1e01b8ab797aef9776b87a38493a27a60d808cf3fdb6189a753e3e1ffc272c1f",
+      "probe": "`\\u00E9` written for `é`, in uppercase hexadecimal. SPEC.md 4 says a string is escaped the one way and everything outside the control characters is written literally, so this is well-formed JSON in the wrong spelling.",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.MANIFEST.CANONICAL": "NON_CANONICAL"
+        }
+      },
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.MANIFEST.CANONICAL": "NON_CANONICAL",
+          "L1.MANIFEST.SIGNATURE": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "escape-solidus",
+      "file": "out/escape-solidus.charter",
+      "bytes": 1863,
+      "sha256": "4925574541f0c9d00d4118618e3457dfc870864d530f6dfeed2a8d7dc47ecd4d",
+      "probe": "`\\/` written for `/` — the escape JSON allows and this format does not, because section 4 says `/` is `/`.",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.MANIFEST.CANONICAL": "NON_CANONICAL"
+        }
+      },
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.MANIFEST.CANONICAL": "NON_CANONICAL",
+          "L1.MANIFEST.SIGNATURE": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "escape-surrogate-pair",
+      "file": "out/escape-surrogate-pair.charter",
+      "bytes": 1871,
+      "sha256": "052bff31c433bfb54af99febeb7979cdb838a68096ad8aba278e23b96696c4a8",
+      "probe": "A supplementary character written as a correctly paired surrogate escape. Section 4 keeps the pair as an ordinary character and says an escape belongs only where JSON requires one, so the value is right and the bytes are a second spelling of it.",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.MANIFEST.CANONICAL": "NON_CANONICAL"
+        }
+      },
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.MANIFEST.CANONICAL": "NON_CANONICAL",
+          "L1.MANIFEST.SIGNATURE": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "title-is-a-float",
+      "file": "out/title-is-a-float.charter",
+      "bytes": 1860,
+      "sha256": "79a1bed3c24daaf539e92d729d7f04cafc199eef6b43e9c3573a976dac68fdc4",
+      "probe": "`1e2` where the title belongs. Section 4.1 reports `1.0`, `1e0` and `-0` as NON_INTEGER_NUMBER; an exponent is the same family of spelling, and it is read before anything could notice that a title is a string.",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.MANIFEST.PARSE": "NON_INTEGER_NUMBER"
+        }
+      },
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.MANIFEST.PARSE": "NON_INTEGER_NUMBER"
+        },
+        "unsupported": {},
+        "skips": 11
+      }
+    },
+    {
+      "name": "manifest-array",
+      "file": "out/manifest-array.charter",
+      "bytes": 1410,
+      "sha256": "e43be71af3c111236b3bb3ee9e89c73c261d326f3eb5313e1a335237bb221046",
+      "probe": "`[]` as the whole manifest: well-formed JSON, and not an object.",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.MANIFEST.PARSE": "MALFORMED"
+        }
+      },
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.MANIFEST.PARSE": "MALFORMED"
+        },
+        "unsupported": {},
+        "skips": 11
+      }
+    },
+    {
+      "name": "manifest-duplicate-key",
+      "file": "out/manifest-duplicate-key.charter",
+      "bytes": 1896,
+      "sha256": "3c153cad5320d049077548bd602244517d088a9528c1cb9a98d729e5d503c1e9",
+      "probe": "A manifest with `title` twice. Section 4 refuses a duplicate key with reason DUPLICATE, because a reader that keeps the last one and a reader that keeps the first disagree about what was signed.",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.MANIFEST.PARSE": "DUPLICATE"
+        }
+      },
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.MANIFEST.PARSE": "DUPLICATE"
+        },
+        "unsupported": {},
+        "skips": 11
+      }
+    },
+    {
+      "name": "manifest-format-missing",
+      "file": "out/manifest-format-missing.charter",
+      "bytes": 1861,
+      "sha256": "184a712ca7af568c7176049d72bf38e56baa44a802a4a1630f134b2ae2fb5253",
+      "probe": "The manifest without `format`. Section 5 gives the field to L0.FORMAT.IDENTIFIER, which runs before the fields, so an absent one is MISSING rather than a field defect.",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.FORMAT.IDENTIFIER": "MISSING"
+        }
+      },
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.FORMAT.IDENTIFIER": "MISSING"
+        },
+        "unsupported": {},
+        "skips": 19
+      }
+    },
+    {
+      "name": "manifest-format-not-a-string",
+      "file": "out/manifest-format-not-a-string.charter",
+      "bytes": 1872,
+      "sha256": "f4b75cdad202850a8144a354eeef09e54566e26f0a96390e3b7d44fb80aee182",
+      "probe": "`format` as a number. The same check owns the field, and a value of the wrong type is MALFORMED.",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.FORMAT.IDENTIFIER": "MALFORMED"
+        }
+      },
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.FORMAT.IDENTIFIER": "MALFORMED"
+        },
+        "unsupported": {},
+        "skips": 19
+      }
+    },
+    {
+      "name": "digest-uppercase",
+      "file": "out/digest-uppercase.charter",
+      "bytes": 1884,
+      "sha256": "e1897ea34470a31f7b0497c41afead0b3002b0442605d552af726aaeba400b14",
+      "probe": "`content.sha256` in uppercase hex: the same digest spelled a second way. Section 5 gives a value's spelling to the checks that read it, so this is NON_CANONICAL_ENCODING on the two checks that read it — and the manifest bytes changed, so the signature no longer covers them.",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.CONTENT.HASH": "NON_CANONICAL_ENCODING",
+          "L2.CHAIN.HEAD_MATCHES_CONTENT": "NON_CANONICAL_ENCODING",
+          "L1.MANIFEST.SIGNATURE": "MISMATCH"
+        }
+      },
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.CONTENT.HASH": "NON_CANONICAL_ENCODING",
+          "L1.MANIFEST.SIGNATURE": "MISMATCH",
+          "L2.CHAIN.HEAD_MATCHES_CONTENT": "NON_CANONICAL_ENCODING"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "nested-unknown-content-field",
+      "file": "out/nested-unknown-content-field.charter",
+      "bytes": 1897,
+      "sha256": "15b47d544d0f00ee28d13fdf02083ba357471635cfd91ce7cc68afb34f4dbb74",
+      "probe": "An unknown field one level down, inside `content`. Section 5 says a field nobody interprets is reported rather than ignored.",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.MANIFEST.EXTRA_FIELDS": "UNKNOWN_FIELD"
+        }
+      },
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.MANIFEST.EXTRA_FIELDS": "UNKNOWN_FIELD",
+          "L1.MANIFEST.SIGNATURE": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "nested-unknown-author-field",
+      "file": "out/nested-unknown-author-field.charter",
+      "bytes": 1903,
+      "sha256": "d29e7fe8f1036287d5a62e1343e97a25dff840b3d8dcc1eab5f9897a29de5291",
+      "probe": "The same defect one level down, inside `author`: an unknown field is reported rather than ignored, whichever level of the document it sits at.",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.MANIFEST.EXTRA_FIELDS": "UNKNOWN_FIELD"
+        }
+      },
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.MANIFEST.EXTRA_FIELDS": "UNKNOWN_FIELD",
+          "L1.MANIFEST.SIGNATURE": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "public-key-31-bytes",
+      "file": "out/public-key-31-bytes.charter",
+      "bytes": 1883,
+      "sha256": "005ebe1dc98d0d356d5458510ec37fb6aa7b6923c23e8d3b8bc76b3b89a85b83",
+      "probe": "A public key of 31 bytes. Section 5 gives the key's encoding to L1.MANIFEST.KEY_ID and L1.MANIFEST.SIGNATURE, so a key that does not decode to 32 bytes is MALFORMED there rather than a field defect.",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L1.MANIFEST.KEY_ID": "MALFORMED",
+          "L1.MANIFEST.SIGNATURE": "MALFORMED"
+        }
+      },
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L1.MANIFEST.KEY_ID": "MALFORMED",
+          "L1.MANIFEST.SIGNATURE": "MALFORMED"
+        },
+        "unsupported": {},
+        "skips": 3
+      }
+    },
+    {
+      "name": "public-key-trailing-bits",
+      "file": "out/public-key-trailing-bits.charter",
+      "bytes": 1884,
+      "sha256": "e6df9bb5aae0bfaad1317d44212ba24ffdcae411e69a9ac9c86c5be03148a6b6",
+      "probe": "A base64url key whose unused trailing bits are not zero: the same 32 bytes in a second spelling, which is NON_CANONICAL_ENCODING rather than MALFORMED.",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L1.MANIFEST.KEY_ID": "NON_CANONICAL_ENCODING",
+          "L1.MANIFEST.SIGNATURE": "NON_CANONICAL_ENCODING"
+        }
+      },
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L1.MANIFEST.KEY_ID": "NON_CANONICAL_ENCODING",
+          "L1.MANIFEST.SIGNATURE": "NON_CANONICAL_ENCODING"
+        },
+        "unsupported": {},
+        "skips": 3
+      }
+    },
+    {
+      "name": "signature-padded",
+      "file": "out/signature-padded.charter",
+      "bytes": 1885,
+      "sha256": "2a7b53409c23e8481ffe631c5ba5a156c0fd8c46d72dde1c2e8298ab90bd88e2",
+      "probe": "A signature with `=` padding: the same 64 bytes, spelled the way the format does not.",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L1.MANIFEST.SIGNATURE": "NON_CANONICAL_ENCODING"
+        }
+      },
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L1.MANIFEST.SIGNATURE": "NON_CANONICAL_ENCODING"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "log-is-not-an-object",
+      "file": "out/log-is-not-an-object.charter",
+      "bytes": 969,
+      "sha256": "0549bd879485d675bb0c3390de7b1cfbdf3b590a678107a9e9e6b9c41b9392c2",
+      "probe": "A log whose only line is `[1,2]`: well-formed JSON, not an object, so it is not an entry — and an artifact whose log holds no entry is not one that states a history.",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.PROVENANCE.PARSE": "MALFORMED"
+        }
+      },
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.PROVENANCE.PARSE": "MALFORMED"
+        },
+        "unsupported": {},
+        "skips": 11
+      }
+    },
+    {
+      "name": "log-is-a-bare-number",
+      "file": "out/log-is-a-bare-number.charter",
+      "bytes": 965,
+      "sha256": "24b446aa7d2206a6c92ea6477d23b59050a6ae6528a8c58cc552049d109d6502",
+      "probe": "A log whose only line is the bare number `1`. Section 7 says one JSON object per line, and a number is not an object, so the line is PARSE's complaint and the artifact states no history.",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.PROVENANCE.PARSE": "MALFORMED"
+        }
+      },
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.PROVENANCE.PARSE": "MALFORMED"
+        },
+        "unsupported": {},
+        "skips": 11
+      }
+    },
+    {
+      "name": "log-line-with-crlf",
+      "file": "out/log-line-with-crlf.charter",
+      "bytes": 1397,
+      "sha256": "72d9ea877f9a42c6b2371b0d1189ba1bf20f2fbba6deb0b373453e8970ba89f0",
+      "probe": "One canonical entry, closed by CRLF instead of LF. Section 7 says each line is closed by exactly one LF and section 4 says a line's bytes are the canonical form of its value followed by one LF, so the line parses and its bytes are a second spelling of it.",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.PROVENANCE.CANONICAL": "NON_CANONICAL"
+        }
+      },
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.PROVENANCE.CANONICAL": "NON_CANONICAL",
+          "L2.CHAIN.HEAD_MATCHES_CONTENT": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "log-line-not-canonical",
+      "file": "out/log-line-not-canonical.charter",
+      "bytes": 984,
+      "sha256": "ec9e7a94aaee648ea0a8d63ec066eaf45df0d9f58205a70e189455f40debdbb9",
+      "probe": "A log line with a space after its colon: the value is well-formed and its bytes are not the canonical form of it.",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.PROVENANCE.CANONICAL": "NON_CANONICAL"
+        }
+      },
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.PROVENANCE.CANONICAL": "NON_CANONICAL",
+          "L0.PROVENANCE.FIELDS": "MALFORMED",
+          "L0.PROVENANCE.CONTENT_HASH_FORMAT": "NON_CANONICAL_ENCODING"
+        },
+        "unsupported": {},
+        "skips": 6
+      }
+    },
+    {
+      "name": "log-line-unknown-field",
+      "file": "out/log-line-unknown-field.charter",
+      "bytes": 1411,
+      "sha256": "c6ec34f2cb31767abc1f3fdd6ed777f95aef10747636239ae50f889440cd0d83",
+      "probe": "A canonical entry carrying one field this version does not define.",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.PROVENANCE.EXTRA_FIELDS": "UNKNOWN_FIELD"
+        }
+      },
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.PROVENANCE.EXTRA_FIELDS": "UNKNOWN_FIELD",
+          "L1.PROVENANCE.SIGNATURES": "MISMATCH",
+          "L2.CHAIN.HEAD_MATCHES_CONTENT": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    }
+  ]
+}

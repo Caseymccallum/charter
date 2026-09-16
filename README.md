@@ -104,15 +104,26 @@ every check it cannot perform, which is a verdict of `INCOMPLETE`, never a pass.
 
 ```
 node vectors/run.js     # replay 54 artifacts against 54 recorded answers
-npm test                # the 111 tests, through node --test
+npm run probe           # 20 more artifacts, asked of two implementations
+npm test                # the 126 tests, through node --test
 npm run kit:python      # the same 54 answers, through a second implementation
-npm run test:python     # 90 Python tests, including that replay
+npm run test:python     # 92 Python tests, including that replay
 ```
 
 `vectors/run.js` is written for a reader, not for the author: it reads
 `vectors/expected.json`, reads the artifacts the record names, and asks the
 verifier for a verdict. If the bytes on disk are not the bytes the record
 describes, it says so instead of quietly agreeing.
+
+`vectors/probe/` is the same idea for the cases the kit does not contain: 20
+artifacts built by hand — a leading-zero integer, four spellings of an escape, an
+uppercase digest, a key of 31 bytes, a base64url tail whose unused bits are not
+zero, a log line that is not an object, a CRLF line — asked of the reference and
+of the Python implementation at once. It is the harness that found the findings
+below (and, once committed, two more: see
+[`vectors/probe/README.md`](vectors/probe/README.md)), and `npm run probe`
+re-runs it. It needs Node; the Python leg is skipped, with a sentence saying so,
+on a machine that has no interpreter.
 
 `implementations/python/` is a second reading of the same spec, in Python, by a
 reader who did not read `verifier/**` — no shared code and no shared crypto
@@ -137,6 +148,33 @@ come back `VERIFIED`, because the format genuinely cannot tell:
 `history-rewritten` (the key holder re-signs everything) and
 `entry-with-earlier-timestamp` (nothing witnesses time). A verifier that admits
 what it cannot see is more trustworthy than one that claims to see everything.
+
+## The editor
+
+```
+npm run editor     # serve this repository on loopback and open editor/index.html
+```
+
+`editor/` is a single static page that shows a `.charter` file's claim to someone
+who is not going to read [SPEC.md](SPEC.md): drop a file on it and you get the
+verdict, every check, the document it is about, the history, and the statements
+of what a `VERIFIED` verdict does *not* mean — and then a write pane that seals
+one, with the key you paste into it.
+
+It is a **demonstration, not a product**, and that is the whole reason it exists:
+the format's claim is easy to describe and hard to see, and a page that shows it
+beside the document is the cheapest way to show it. It has no sync, no account,
+no store, no key storage, no build step, no dependency, and no network request —
+it imports the verifier and the writers out of `verifier/**`, which is why those
+two writers live there rather than beside the producer, and `test/editor.test.js`
+asserts all of that. A file sealed in the page and the same file sealed by
+`charter seal` are the same bytes, and the test compares them.
+
+It has to be opened over http rather than by double-clicking the file: browsers
+refuse to load an ES module from a `file://` page, and the page is made of
+modules. `npm run editor` is a courier for exactly that,
+[`editor/README.md`](editor/README.md) says so in the browser's own words, and
+`python -m http.server` works just as well.
 
 ## What is inside a `.charter` file
 
@@ -173,8 +211,8 @@ can decide from the artifact alone, and they are printed rather than guessed at.
 
 | Absent | Why |
 | --- | --- |
-| An editor, a server, a sync engine | the format is the product; a producer that writes one file is enough to seal one |
-| A store of keys, or a lookup for one | `keygen` writes one file and keeps nothing: a key belongs to whoever holds it |
+| A server, an account, a sync engine | the format is the product; `editor/` is one static page that reads and seals a file, and it stores nothing |
+| A store of keys, or a lookup for one | `keygen` writes one file and keeps nothing, and the editor holds a key in memory for as long as the page is open: a key belongs to whoever holds it |
 | Network access, in the verifier or the CLI | a verdict that depends on a server is not checkable offline |
 | Encryption | ZIP is not a confidentiality mechanism; a charter's size is visible and the format does not pretend otherwise |
 | Revocation, transparency logs, timestamp authorities | these belong above the format; a charter is a self-contained file |
@@ -187,23 +225,27 @@ can decide from the artifact alone, and they are printed rather than guessed at.
 | Path | What it is |
 | --- | --- |
 | `SPEC.md` | the format, and why each rule exists |
-| `verifier/` | the pure verifier: bytes in, verdict out. No clock, no disk, no network, no `node:` imports |
+| `verifier/` | the pure verifier: bytes in, verdict out. No clock, no disk, no network, no `node:` imports. It also holds the two writers a page may import — the canonical ZIP writer and the base64url encoder — which no module the reading path reaches can see |
 | `producer/` | the reference implementation: writes the format, reads a file's claims, cites one. No clock, no disk, one `node:` import (`node:crypto`, for keys) |
+| `editor/` | a demonstration, not a product: one static page that shows a file's claim and seals one, importing `verifier/**` and nothing else. `editor/serve.mjs` hands it to a browser |
 | `cli/charter.js` | the only file in the project that reads or writes a file, and the only place a verdict or a refusal becomes text |
 | `vectors/` | the conformance kit: an independent builder, 54 artifacts, the recorded answers, and the replay |
+| `vectors/probe/` | the differential probe: 20 more artifacts, the answers the reference gives for them, and the replay that asks both implementations |
 | `implementations/python/` | a second reading of the spec: a Python verifier with no shared code, no shared crypto and its own replay of the same 54 answers, plus what the exercise found |
-| `test/` | 111 tests, including `purity.test.js` (the verifier stays pure, and the serializer shares no code with the parser), `parser.fuzz.test.js` (no input throws), `canonical.roundtrip.test.js` (every committed artifact is a fixed point of the reader and the serializer, both directions), `adversarial.test.js` (the table in `adversarial.md` is a claim the tests check), and `producer.test.js` (seal, then verify, then every way a sealed file can be made to lie). `test/corpus.js` is not a test file: it is the hostile-text corpus both fuzz suites are stated over, so `node --test` lists it and finds nothing in it. |
+| `test/` | 124 tests, including `purity.test.js` (the verifier stays pure, the serializer shares no code with the parser, and no writer is reachable from a verdict), `parser.fuzz.test.js` (no input throws), `canonical.roundtrip.test.js` (every committed artifact is a fixed point of the reader and the serializer, both directions), `adversarial.test.js` (the table in `adversarial.md` is a claim the tests check), `producer.test.js` (seal, then verify, then every way a sealed file can be made to lie), `probe.test.js` (the probe's record, replayed), and `editor.test.js` (the page's import graph, and the page itself in a headless browser). `test/corpus.js` is not a test file: it is the hostile-text corpus both fuzz suites are stated over, so `node --test` lists it and finds nothing in it. |
 | `NAMING.md` | what the words in this project mean, and which ones are avoided |
 
 ## Development
 
 ```
-npm test          # node --test: discovers test/*.test.js and runs all 111
+npm test          # node --test: discovers test/*.test.js and runs all 124
 npm run kit       # replay the conformance kit
 npm run kit:build # rebuild the kit's artifacts (the author's program)
+npm run probe     # ask the reference and the Python port about 20 hand-built artifacts
 npm run seal      # the producer's verbs: seal, inspect, cite, keygen
+npm run editor    # serve the repository and open the editor
 npm run kit:python  # replay the same kit with the Python verifier
-npm run test:python # the Python port's 90 tests
+npm run test:python # the Python port's 92 tests
 ```
 
 `vectors/build.js` shares no code with `verifier/**`. It writes the canonical

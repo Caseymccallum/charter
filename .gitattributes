@@ -10,6 +10,8 @@
 # checkout and a Linux checkout produce the same bytes, and a diff is still a
 # diff.
 *.js         text eol=lf
+*.mjs        text eol=lf
+*.html       text eol=lf
 *.md         text eol=lf
 *.json       text eol=lf
 *.py         text eol=lf

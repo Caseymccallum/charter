@@ -24,15 +24,27 @@
  * meet files from everywhere; the producer does not write it because the
  * producer writes one file.
  *
- * @module producer/zip-write
+ * # Why one writer lives here
+ *
+ * This module is not part of a verdict: nothing the reading path imports can
+ * reach it, and `test/purity.test.js` walks the imports of `verify.js` and
+ * refuses the run if it ever does. It sits in this directory because the
+ * container's shape is defined by the *reader* — every field below is one this
+ * directory's reader checks, and `METHOD_STORED` is read out of it — and
+ * because the only writers this project has are the one that shells out a file
+ * and the one that runs in a page. A second writer, in a directory that a
+ * browser may not import, would be a second place for the container's rules to
+ * be written down.
+ *
+ * @module verifier/zip-write
  */
 
-import { concat, utf8Encode } from '../verifier/bytes.js';
-import { crc32 } from '../verifier/crc32.js';
-import { LIMITS } from '../verifier/limits.js';
-import { REASON } from '../verifier/status.js';
-import { METHOD_STORED } from '../verifier/zip.js';
-import { refuse } from './errors.js';
+import { concat, utf8Encode } from './bytes.js';
+import { crc32 } from './crc32.js';
+import { LIMITS } from './limits.js';
+import { refuse } from './refuse.js';
+import { REASON } from './status.js';
+import { METHOD_STORED } from './zip.js';
 
 /** Version 2.0, host 0 (MS-DOS): written by a tool rather than by a file system. */
 export const VERSION_MADE_BY = 0x0014;

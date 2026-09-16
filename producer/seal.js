@@ -42,6 +42,7 @@
  * @module producer/seal
  */
 
+import { encodeBase64Url } from '../verifier/base64url-write.js';
 import { canonicalDocument, signingInput } from '../verifier/canonical-write.js';
 import { toHex, utf8Decode } from '../verifier/bytes.js';
 import { sha256 } from '../verifier/digest.js';
@@ -50,11 +51,10 @@ import { ALGORITHM, FORMAT } from '../verifier/manifest.js';
 import { isIsoUtcSecond } from '../verifier/schema.js';
 import { REASON } from '../verifier/status.js';
 import { ENTRY_CONTENT, ENTRY_MANIFEST, ENTRY_PROVENANCE } from '../verifier/verify.js';
-import { encodeBase64Url } from './base64url.js';
+import { zipStore } from '../verifier/zip-write.js';
 import { refuse } from './errors.js';
 import { loadKey, signBytes } from './key.js';
 import { deriveTitle, titleFromPath, TITLE_ORIGINS } from './title.js';
-import { zipStore } from './zip-write.js';
 
 /**
  * The instant a sealed file states when the person sealing stated no time:

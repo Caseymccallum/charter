@@ -29,12 +29,12 @@ import { readFile, stat, writeFile } from 'node:fs/promises';
 import { basename } from 'node:path';
 
 import { citationItem } from '../producer/cite.js';
-import { ProducerError } from '../producer/errors.js';
 import { generateKeyPair } from '../producer/key.js';
 import { readCharter } from '../producer/read.js';
 import { seal } from '../producer/seal.js';
 import { utf8Decode, utf8Encode } from '../verifier/bytes.js';
 import { FORMAT } from '../verifier/manifest.js';
+import { RefusalError } from '../verifier/refuse.js';
 import { REASON } from '../verifier/status.js';
 import { verify } from '../verifier/verify.js';
 
@@ -319,10 +319,14 @@ async function writeOutput(path, bytes, mode = 0o644) {
 /**
  * Run a producer call and turn its refusal into an exit code.
  *
- * A `ProducerError` is the producer saying no with a name from the shared
- * vocabulary, and that is the only kind of failure this turns into a code.
- * Anything else is a defect in this project and is allowed to reach the top of
- * the process, where a stack trace says so instead of an exit code hiding it.
+ * A refusal is a writer saying no with a name from the shared vocabulary, and
+ * that is the only kind of failure this turns into a code. The class is the
+ * shared one rather than the producer's `ProducerError`, because a seal writes
+ * through code that lives in `verifier/**` — the ZIP writer — and a refusal
+ * from there is still a refusal, with the same reason code, that a caller has
+ * to be able to branch on. Anything else is a defect in this project and is
+ * allowed to reach the top of the process, where a stack trace says so instead
+ * of an exit code hiding it.
  *
  * @template T
  * @param {string} verb
@@ -333,7 +337,7 @@ async function produce(verb, work) {
   try {
     return { ok: true, value: await work() };
   } catch (error) {
-    if (error instanceof ProducerError) {
+    if (error instanceof RefusalError) {
       return { ok: false, code: refusal(verb, error.reason_code, error.detail, EXIT_REFUSED) };
     }
     throw error;

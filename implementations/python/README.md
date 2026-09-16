@@ -10,8 +10,13 @@ Ed25519 arithmetic are all implemented here.
 cd implementations/python
 python -m charter_verify ../../vectors/out/valid.charter --json   # one file
 python -m charter_verify.kit                                      # the conformance kit
-python -m unittest discover                                       # 90 tests
+python -m unittest discover                                       # 92 tests
+python tools/probe.py --check                                     # the probe's fixtures against their recipes
 ```
+
+`node ../../vectors/probe/run.js` asks this implementation, the reference, and
+the probe's record the same 20 questions; that is the harness
+[`vectors/probe/README.md`](../../vectors/probe/README.md) describes.
 
 ## What it is for
 
@@ -234,15 +239,24 @@ Three passes, in increasing severity:
 2. **The interface.** For each of the 54 fixtures, the reference CLI's `--json`
    was read and its shape compared to this verifier's, key for key and check id
    for check id: 0 differences.
-3. **Artifacts neither kit contains.** 20 artifacts were built by hand — an
-   uppercase digest, a padded signature, a key of 31 bytes, a key with a
-   non-zero trailing bit pattern, a missing `format`, a non-string `format`, a
-   nested unknown field, a leading-zero integer, four escape spellings, a
-   duplicate key, an array, a float where a title belongs, a log line that is not
-   an object, a bare number, a CRLF line, a non-canonical line, an unknown log
-   field — and both implementations were asked. This pass began at 9
-   disagreements and ended at 0, and every change it forced is either a spec
-   amendment (above) or a change in this port.
+3. **Artifacts neither kit contains.** `vectors/probe/` holds 20 artifacts built
+   by hand — an uppercase digest, a padded signature, a key of 31 bytes, a key
+   with a non-zero trailing bit pattern, a missing `format`, a non-string
+   `format`, a nested unknown field, a leading-zero integer, four escape
+   spellings, a duplicate key, an array, a float where a title belongs, a log line
+   that is not an object, a bare number, a CRLF line, a non-canonical line, an
+   unknown log field — with the answers the reference gave for each one, and
+   `node vectors/probe/run.js` asks both implementations again and compares. This
+   pass began at 9 disagreements and ended at 0, and every change it forced is
+   either a spec amendment (above) or a change in this port. Committing the
+   artifacts is what makes that claim checkable rather than merely reported, and
+   it found two more things the run in `%TEMP%` could not: a missing
+   `content_sha256` is reported with the reason code for a *second spelling* of a
+   value while the sentence beside it says the value is absent, and this port's
+   CLI wrote a verdict whose title was U+1F600 as nothing at all when its stdout
+   was a pipe, because Windows encodes text with the console code page. The first
+   is frozen in `tests/test_spec_gaps.py`, the second in `tests/test_cli.py`, and
+   both are written down in `vectors/probe/README.md`.
 
 The modules are split so that the rule can be checked: `canonical`, `container`,
 `documents`, `ed25519`, `checks`, `verdict` and `verify` never read a file, a
@@ -270,4 +284,5 @@ deliberately implements only the verifying half of RFC 8032.
 | `charter_verify/verdict.py` | the three verdicts, the two output forms, the five statements of §11 |
 | `charter_verify/cli.py` | `python -m charter_verify <file> [--all] [--json]`, and the exit codes |
 | `charter_verify/kit.py` | the replay, and the audit hook that fails the run if `verifier/**` is opened |
-| `tests/` | 90 tests, including the replay, the canonical rules, the container, the field rules, the Ed25519 arithmetic, the CLI, and the eight silent cases |
+| `tools/probe.py` | the 20 differential probes: their recipes, the builder that records the reference's answers, and `--check` |
+| `tests/` | 92 tests, including the replay, the canonical rules, the container, the field rules, the Ed25519 arithmetic, the CLI, the eight silent cases, and two the probe found after it was committed |
