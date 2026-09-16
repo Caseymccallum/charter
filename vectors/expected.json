@@ -415,6 +415,461 @@
         "unsupported": {},
         "skips": 7
       }
+    },
+    {
+      "name": "truncated-last-byte",
+      "file": "out/truncated-last-byte.charter",
+      "bytes": 1883,
+      "sha256": "b0d42ededcf2757b897859dd80b5e27379661949c1b55e2aa39a8ec5f7fec8dc",
+      "note": "A valid artifact with its last byte removed. The end record is now one byte short, so there is no archive to walk: one FAIL and 29 checks that were never reached.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.READABLE": "MALFORMED"
+        },
+        "unsupported": {},
+        "skips": 29
+      }
+    },
+    {
+      "name": "truncated-eocd",
+      "file": "out/truncated-eocd.charter",
+      "bytes": 1876,
+      "sha256": "cf0c5064711931a3059810327d4843c78a67c61167900c727e90dabfa76cdbe7",
+      "note": "The last 8 bytes are gone, which cuts the end-of-central-directory record in half. A reader that searched forward would find a signature and believe it.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.READABLE": "MALFORMED"
+        },
+        "unsupported": {},
+        "skips": 29
+      }
+    },
+    {
+      "name": "truncated-mid-header",
+      "file": "out/truncated-mid-header.charter",
+      "bytes": 1844,
+      "sha256": "93131ae2165ec408ada6288437561922278154b274319fda48e792bedcd6dd4b",
+      "note": "The last 40 bytes are gone: the end record and part of the central directory. The third point in the truncation neighborhood that test/adversarial.test.js walks byte by byte.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.READABLE": "MALFORMED"
+        },
+        "unsupported": {},
+        "skips": 29
+      }
+    },
+    {
+      "name": "missing-manifest",
+      "file": "out/missing-manifest.charter",
+      "bytes": 1305,
+      "sha256": "55de39e3e7963a3c2b97405a4733f4642814fabaa91b16f62d926b046d85a599",
+      "note": "The archive holds content.md and provenance.jsonl and no manifest. The entry set is broken, and every check that needs a manifest value is unproven: 12 checks that were never reached, and no pass among them.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.ENTRY_SET": "MISSING"
+        },
+        "unsupported": {},
+        "skips": 12
+      }
+    },
+    {
+      "name": "missing-content",
+      "file": "out/missing-content.charter",
+      "bytes": 1630,
+      "sha256": "eece7c012184baddd454ef5e8a2bae66f26b154f21a2edf5ba0774b9ddeb004a",
+      "note": "The archive holds the manifest and the log and no content.md. The manifest and the last entry still agree about the digest of a document that is not in the file, so the entry set is the check that refuses this one.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.ENTRY_SET": "MISSING"
+        },
+        "unsupported": {},
+        "skips": 2
+      }
+    },
+    {
+      "name": "stored-declared-deflated",
+      "file": "out/stored-declared-deflated.charter",
+      "bytes": 1884,
+      "sha256": "ccd8cc9e60387ebbddab8c51038e30948837000f2bf4afab2977e396644b0886",
+      "note": "content.md is stored and declares method 8. The bytes are what they are and the declaration is a lie, so the entry cannot be decoded and nothing that would have read it can run.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.ENTRY_DATA": "DECODE_ERROR"
+        },
+        "unsupported": {},
+        "skips": 4
+      }
+    },
+    {
+      "name": "deflate-declared-stored",
+      "file": "out/deflate-declared-stored.charter",
+      "bytes": 1847,
+      "sha256": "f42b26175eb34725494a42e316b2d9ea069c0e00406fe3ad74575c03e2642dbc",
+      "note": "content.md is raw-deflated and declares method 0, so the bytes a reader takes as the document are the compressed stream. The size, the CRC-32, the UTF-8 and the digest each disagree with it in their own words.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.SIZES": "MISMATCH",
+          "L0.ZIP.CRC32": "MISMATCH",
+          "L0.CONTENT.UTF8": "DECODE_ERROR",
+          "L0.CONTENT.HASH": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "manifest-too-large",
+      "file": "out/manifest-too-large.charter",
+      "bytes": 2439,
+      "sha256": "de6666a3e195b90ea75ec98e28ce43f460fdc01e4e4ab9ad008a3f983388ee0b",
+      "note": "The manifest is one byte over the declared ceiling for a single JSON document. The bytes decode and the entry is intact, and this verifier refuses to parse a document whose size it did not agree to parse: LIMIT_EXCEEDED, never a slow pass.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.MANIFEST.PARSE": "LIMIT_EXCEEDED"
+        },
+        "unsupported": {},
+        "skips": 11
+      }
+    },
+    {
+      "name": "manifest-pretty-printed",
+      "file": "out/manifest-pretty-printed.charter",
+      "bytes": 1945,
+      "sha256": "3dacc4662e1e09f9094f4fd7875ff1e931372440d48690afae4f915091fae2d6",
+      "note": "The same manifest value, signed correctly, indented as JSON.stringify writes it. The value is right and the bytes are not the canonical bytes for that value, which is what NON_CANONICAL means.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.MANIFEST.CANONICAL": "NON_CANONICAL"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "manifest-spaced",
+      "file": "out/manifest-spaced.charter",
+      "bytes": 1906,
+      "sha256": "e91ca5b1f36d6fa814e66ceb6483fb3a05793f42cca80553bcae957a5ab24afc",
+      "note": "The canonical manifest with one space inserted between every pair of tokens, outside strings. Well-formed JSON, the same value, different bytes.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.MANIFEST.CANONICAL": "NON_CANONICAL"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "manifest-no-trailing-newline",
+      "file": "out/manifest-no-trailing-newline.charter",
+      "bytes": 1883,
+      "sha256": "e05bc6fde7b7213f8a9b5a293d12c7534b5a7870803bc9dc07073413a6daea3f",
+      "note": "Canonical bytes with the terminator missing. A file is one canonical value followed by exactly one LF, and zero LFs is not one.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.MANIFEST.CANONICAL": "NON_CANONICAL"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "manifest-two-trailing-newlines",
+      "file": "out/manifest-two-trailing-newlines.charter",
+      "bytes": 1885,
+      "sha256": "fc33a2cb1dbabe768c5dc4d67b4d114c365b2c08fc41d8a857709c3748d98335",
+      "note": "Canonical bytes followed by two LFs. The value ends where the value ends, and a second terminator is a byte nobody signed.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.MANIFEST.CANONICAL": "NON_CANONICAL"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "manifest-signature-over-pretty",
+      "file": "out/manifest-signature-over-pretty.charter",
+      "bytes": 1884,
+      "sha256": "e2d0fc80a4838bd4932f1e907058b8568667be666395fe91cda7056a21124d81",
+      "note": "The manifest bytes are canonical and the signature covers the indented spelling of the same value. Both halves are internally consistent, and they are not about the same bytes.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L1.MANIFEST.SIGNATURE": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "manifest-signature-without-lf",
+      "file": "out/manifest-signature-without-lf.charter",
+      "bytes": 1884,
+      "sha256": "132dcfb9dcbbc13206f2e5c4bc6a52559b914fbf4a540b7969dd5681b91839ea",
+      "note": "The manifest bytes are canonical and the signature covers them with the closing LF left off. One byte is the whole difference, which is why the LF is part of the signed bytes at all.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L1.MANIFEST.SIGNATURE": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "content-same-length-swapped",
+      "file": "out/content-same-length-swapped.charter",
+      "bytes": 1884,
+      "sha256": "dc4ca1af3bdebfabe0a2a388927828aec40d88d411d559b1b55d0461c4ebfc0e",
+      "note": "content.md is replaced by a different valid Markdown document of exactly the same byte length. No size check could ever notice, which is why the digest is the thing that has to.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.CONTENT.HASH": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "content-hash-rewritten",
+      "file": "out/content-hash-rewritten.charter",
+      "bytes": 1884,
+      "sha256": "55f4c881036f012d6568ac11a63b609e27e5f54c0b21c2e48bc98c6303706fa0",
+      "note": "The manifest declares a digest of bytes nobody has, and content.md is untouched. The signature is valid over the new digest, and the log still declares the old one.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.CONTENT.HASH": "MISMATCH",
+          "L2.CHAIN.HEAD_MATCHES_CONTENT": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "content-and-manifest-changed",
+      "file": "out/content-and-manifest-changed.charter",
+      "bytes": 1931,
+      "sha256": "49b491f3ef5072864a26c825cb9517b4921571cbae3880719f15b8cc087c8501",
+      "note": "The content and the manifest digest change together and the manifest signature is not recomputed: it still covers the digest that was there before. New content, a manifest that describes it, and a signature about the old one.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L1.MANIFEST.SIGNATURE": "MISMATCH",
+          "L2.CHAIN.HEAD_MATCHES_CONTENT": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "empty-content",
+      "file": "out/empty-content.charter",
+      "bytes": 1726,
+      "sha256": "7e07c9de6772adbecd0fccf21ed38d0ccaa29bfad3babf888420a849a33b7e48",
+      "note": "content.md is empty, and the manifest and the log both declare the digest of the empty string. VERIFIED is what the spec requires: the empty byte string is valid UTF-8, carries no mark, and has a SHA-256 like any other byte string. A format whose claim is that the bytes are the document does not also get to require that the document say something.",
+      "expected": {
+        "verdict": "VERIFIED",
+        "exit_code": 0,
+        "fail": {},
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "manifest-signature-truncated",
+      "file": "out/manifest-signature-truncated.charter",
+      "bytes": 1882,
+      "sha256": "2523632c01a4c59a280146fbfd09be1d1ad55add60e78569bea5a9345931c411",
+      "note": "The manifest signature is one byte short: 63 bytes where Ed25519 uses 64. It is not a signature that failed; it is not a signature.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L1.MANIFEST.SIGNATURE": "MALFORMED"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "manifest-signed-by-other-key",
+      "file": "out/manifest-signed-by-other-key.charter",
+      "bytes": 1884,
+      "sha256": "0b2943d08e57aabb49653f212ee3959182d05f9048b4bf724b3a6811176ae67b",
+      "note": "A second key signed the manifest and the manifest carries the first key. The signature is a real signature by somebody, and not by the author this file names.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L1.MANIFEST.SIGNATURE": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "manifest-public-key-swapped",
+      "file": "out/manifest-public-key-swapped.charter",
+      "bytes": 1884,
+      "sha256": "9d116e5e6207c5cc17982e005c38ba93b28d37d178495b217251d8fd4259cdc3",
+      "note": "public_key is a second key's. key_id, the manifest signature and every entry signature are the first key's, so the key id no longer derives from the key beside it and no signature in the file verifies against it.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L1.MANIFEST.KEY_ID": "MISMATCH",
+          "L1.MANIFEST.SIGNATURE": "MISMATCH",
+          "L1.PROVENANCE.SIGNATURES": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "key-id-not-derived",
+      "file": "out/key-id-not-derived.charter",
+      "bytes": 1884,
+      "sha256": "76584b51190be2bcca69a843537567ea2d84e9ed0189a8f2a33a7b0b844b5dd9",
+      "note": "key_id is not the derivation of the public_key beside it, and every signature is the real key's. The entries then name a key the manifest does not carry.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L1.MANIFEST.KEY_ID": "MISMATCH",
+          "L1.PROVENANCE.FIRST_AUTHOR": "MISMATCH",
+          "L1.PROVENANCE.KEYS": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "parent-hash-unknown",
+      "file": "out/parent-hash-unknown.charter",
+      "bytes": 1884,
+      "sha256": "f762775c142987f08f645a32b8149a8d736e4262685b4638d8b617b2cd6af520",
+      "note": "An entry declares a parent that is a digest of bytes nobody has: not the line before it, and not any line in the file. Every signature is valid.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L2.CHAIN.LINKS": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "forked-log",
+      "file": "out/forked-log.charter",
+      "bytes": 2279,
+      "sha256": "fcb95b65026fe8333ce99c36c02d3c49e8c86f8358bf1abb212ebc2ef7ab1aa2",
+      "note": "Three entries, and the second and third declare the same parent: one predecessor with two successors, which is a fork rather than a history. The link that breaks is the third one.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L2.CHAIN.LINKS": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "log-reordered",
+      "file": "out/log-reordered.charter",
+      "bytes": 1884,
+      "sha256": "55bbc2974253b0a0c7160f13197dfdd461fde9af8f505a43a7e0da6eb8038405",
+      "note": "The two entries of a valid log are swapped and every signature still verifies, because each entry is signed on its own. The chain is the only structure that notices, and it notices three things at once.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L2.CHAIN.FIRST_PARENT_NULL": "MISMATCH",
+          "L2.CHAIN.LINKS": "MISMATCH",
+          "L2.CHAIN.HEAD_MATCHES_CONTENT": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "log-middle-entry-removed",
+      "file": "out/log-middle-entry-removed.charter",
+      "bytes": 1818,
+      "sha256": "cc60b90c7b5bd7bfba30d4d2cef7f3a3461c51a9b029ffcf910e1313e78a5b01",
+      "note": "A three-entry log loses its middle entry. The remaining entries are canonical, signed, and in order, and the seam where the history was cut is the one thing that does not match.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L2.CHAIN.LINKS": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "head-describes-other-content",
+      "file": "out/head-describes-other-content.charter",
+      "bytes": 1884,
+      "sha256": "c8ab9cefc13cc8d096d15813d20893b30b8d286545b96b421c2198b71c16bae2",
+      "note": "The last entry's content_sha256 is an earlier revision's digest, and it is correctly signed: the entry says what its author meant it to say, and the log no longer ends at the document the manifest declares.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L2.CHAIN.HEAD_MATCHES_CONTENT": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "entry-with-earlier-timestamp",
+      "file": "out/entry-with-earlier-timestamp.charter",
+      "bytes": 2279,
+      "sha256": "205fed555356289d26cc9149d43d98ddfbee366374c902eb7d73ade89835902c",
+      "note": "A three-entry log whose last entry carries a timestamp before its parent's, correctly signed and correctly chained. VERIFIED is the answer, and it is the spec's answer: no check compares two timestamps, because the chain fixes order of inclusion and nothing in an artifact witnesses time. Changing the verifier to catch this one would be breaking the spec, not fixing it.",
+      "expected": {
+        "verdict": "VERIFIED",
+        "exit_code": 0,
+        "fail": {},
+        "unsupported": {},
+        "skips": 0
+      }
     }
   ]
 }

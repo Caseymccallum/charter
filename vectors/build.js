@@ -141,6 +141,39 @@ function canonicalBytes(value, order) {
   return withLf(utf8(canonical(value, order)));
 }
 
+/**
+ * Insert one space between every pair of tokens, outside strings.
+ *
+ * The result is well-formed JSON that parses to the same value and is not the
+ * canonical bytes for it, which is exactly the case SPEC.md section 4 says a
+ * reader must report as NON_CANONICAL rather than as a syntax error.
+ *
+ * @param {string} text
+ * @returns {string}
+ */
+function spaceBetweenTokens(text) {
+  let out = '';
+  let inString = false;
+  let escaped = false;
+  for (const character of text) {
+    if (inString) {
+      out += character;
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === '"') inString = false;
+      continue;
+    }
+    if (character === '"') {
+      inString = true;
+      out += character;
+      continue;
+    }
+    out += character;
+    if (character === '{' || character === '[' || character === ':' || character === ',') out += ' ';
+  }
+  return out;
+}
+
 /* ------------------------------- bytes ------------------------------- */
 
 /** @param {string} text @returns {Uint8Array} */
@@ -246,7 +279,12 @@ function u32(value) {
  * no data descriptors, and entries laid out in the order they are listed, with
  * the central directory immediately after them.
  *
- * @param {{ name: string, data: Uint8Array, method?: number, flags?: number, declared_size?: number, declared_crc32?: number }[]} entries
+ * `method` decides how the bytes are actually written and what both headers
+ * declare. `declared_method` overrides the declaration alone, which is how the
+ * two cases where an entry lies about its own encoding are built: a reader that
+ * trusts the declaration reads bytes that are not what it was told.
+ *
+ * @param {{ name: string, data: Uint8Array, method?: number, declared_method?: number, flags?: number, declared_size?: number, declared_crc32?: number }[]} entries
  * @param {{ method?: number, flags?: number, version_needed?: number, dos_time?: number, dos_date?: number }} [options]
  * @returns {Uint8Array}
  */
@@ -263,6 +301,7 @@ function zipArchive(entries, options = {}) {
   for (const entry of entries) {
     const nameBytes = utf8(entry.name);
     const method = entry.method ?? options.method ?? 0;
+    const declaredMethod = entry.declared_method ?? method;
     const flags = entry.flags ?? options.flags ?? FLAG_UTF8_NAME;
     const versionNeeded = options.version_needed ?? 20;
     const stored = method === 8 ? new Uint8Array(deflateRawSync(entry.data)) : entry.data;
@@ -273,7 +312,7 @@ function zipArchive(entries, options = {}) {
       u32(SIG_LOCAL),
       u16(versionNeeded),
       u16(flags),
-      u16(method),
+      u16(declaredMethod),
       u16(dosTime),
       u16(dosDate),
       u32(declaredCrc),
@@ -291,7 +330,7 @@ function zipArchive(entries, options = {}) {
         u16(versionNeeded),
         u16(versionNeeded),
         u16(flags),
-        u16(method),
+        u16(declaredMethod),
         u16(dosTime),
         u16(dosDate),
         u32(declaredCrc),
@@ -348,6 +387,28 @@ function sign(message) {
   return new Uint8Array(signWith(null, message, PRIVATE_KEY));
 }
 
+/**
+ * A second key pair, for the two cases that need a key the artifact does not
+ * carry: a signature from somebody else, and a `public_key` field that belongs
+ * to somebody else. Derived the same way as the first one, from a note nobody
+ * can confuse for a key: the key *is* the digest of the text.
+ */
+const OTHER_KEY_NOTE = 'charter/0.1 adversarial kit key. Published on purpose, exactly like the first one, and never for a document anybody cares about.';
+
+const OTHER_PRIVATE_KEY = createPrivateKey({
+  key: Buffer.from(concatBytes([PKCS8_PREFIX, sha256(utf8(OTHER_KEY_NOTE))])),
+  format: 'der',
+  type: 'pkcs8',
+});
+
+/** The raw 32 bytes of the second key's public key. */
+const OTHER_PUBLIC_KEY = new Uint8Array(createPublicKey(OTHER_PRIVATE_KEY).export({ format: 'der', type: 'spki' }).subarray(-32));
+
+/** @param {Uint8Array} message @returns {Uint8Array} 64 bytes */
+function signWithOtherKey(message) {
+  return new Uint8Array(signWith(null, message, OTHER_PRIVATE_KEY));
+}
+
 /* --------------------------- the two documents --------------------------- */
 
 /** The revisions of the document, oldest first. The last one is content.md. */
@@ -376,6 +437,38 @@ const DEFAULT_LOG = Object.freeze([
 ]);
 
 /**
+ * A three-entry history, for the cases that need a middle: an entry removed from
+ * the middle of a chain, and a third entry whose timestamp precedes its
+ * parent's.
+ */
+const THREE_ENTRY_LOG = Object.freeze([
+  Object.freeze({ action: 'create', timestamp: '2026-01-01T00:00:00Z', summary: 'Initial draft.', revision: 0 }),
+  Object.freeze({ action: 'edit', timestamp: '2026-01-02T09:30:00Z', summary: 'Add the Purpose section.', revision: 1 }),
+  Object.freeze({ action: 'edit', timestamp: '2026-01-03T11:00:00Z', summary: 'Tighten the last paragraph.', revision: 1 }),
+]);
+
+/** The third entry, claiming an instant before the entry it follows. */
+const EARLIER_TIMESTAMP_LOG = Object.freeze([
+  THREE_ENTRY_LOG[0],
+  THREE_ENTRY_LOG[1],
+  Object.freeze({ ...THREE_ENTRY_LOG[2], timestamp: '2025-12-31T23:59:59Z' }),
+]);
+
+/**
+ * The same revision with five characters in a different case: a different valid
+ * Markdown document of exactly the same byte length. A length-preserving edit is
+ * the one that no size check could ever catch, which is why the digest is the
+ * thing that has to.
+ */
+const SAME_LENGTH_CONTENT = CONTENT_REVISIONS[1].replace('draft', 'DRAFT');
+if (SAME_LENGTH_CONTENT === CONTENT_REVISIONS[1] || SAME_LENGTH_CONTENT.length !== CONTENT_REVISIONS[1].length) {
+  throw new Error('the same-length content case must change the bytes and keep the length');
+}
+
+/** One more sentence of content, for the case where the document grew and the signature did not. */
+const GROWN_CONTENT = `${CONTENT_REVISIONS[1]}A sentence added after the signature was made.\n`;
+
+/**
  * One entry's value, without its signature.
  *
  * @param {object} plan
@@ -390,7 +483,7 @@ function entryValue(plan, parent, body) {
       key_id: plan.key_id ?? KEY_ID,
       name: plan.author_name ?? NAME,
     },
-    content_sha256: hex(sha256(utf8(body[plan.revision]))),
+    content_sha256: plan.content_sha256 ?? hex(sha256(utf8(body[plan.revision]))),
     parent,
     summary: plan.summary,
     timestamp: plan.timestamp,
@@ -448,19 +541,59 @@ function buildManifest(spec, contentSha256) {
     title: spec.title ?? TITLE,
     ...(spec.manifest_extra ?? {}),
   };
-  const signatureBytes = sign(signingInput(unsigned, 'signature'));
+
+  // What the signature is computed over is not always the value that is
+  // published: `sign_content_sha256` is how the case "the content changed and
+  // the signature was not recomputed" is built.
+  const signedOver =
+    spec.sign_content_sha256 === undefined
+      ? unsigned
+      : { ...unsigned, content: { ...unsigned.content, sha256: spec.sign_content_sha256 } };
+
+  /** Named mutations of the signature, as opposed to a literal signature text. */
+  const SIGNATURE_MUTATIONS = new Set(['flipped', 'short', 'other-key', 'over-pretty', 'without-lf']);
+
+  /** @type {Uint8Array} */
+  let signatureBytes;
+  if (spec.manifest_signature === 'short') {
+    // One byte short of the 64 an Ed25519 signature is.
+    signatureBytes = sign(signingInput(signedOver, 'signature')).slice(0, 63);
+  } else if (spec.manifest_signature === 'other-key') {
+    signatureBytes = signWithOtherKey(signingInput(signedOver, 'signature'));
+  } else if (spec.manifest_signature === 'over-pretty') {
+    // The same value, indented: a well-formed signature over a byte sequence
+    // nobody signed.
+    signatureBytes = sign(withLf(utf8(JSON.stringify(signedOver, null, 2))));
+  } else if (spec.manifest_signature === 'without-lf') {
+    // The canonical bytes of the value, with the terminator left off.
+    signatureBytes = sign(utf8(canonical(signedOver)));
+  } else {
+    signatureBytes = sign(signingInput(signedOver, 'signature'));
+  }
+
   let signature = base64url(signatureBytes);
   if (spec.manifest_signature === 'flipped') {
     const flipped = Uint8Array.from(signatureBytes);
     flipped[0] ^= 0x01;
     signature = base64url(flipped);
-  } else if (typeof spec.manifest_signature === 'string') {
+  } else if (typeof spec.manifest_signature === 'string' && !SIGNATURE_MUTATIONS.has(spec.manifest_signature)) {
     signature = spec.manifest_signature;
   }
+
   const signed = { ...unsigned, signature };
   const order = spec.manifest_key_order === 'reverse' ? (a, b) => compareByCodePoint(b, a) : undefined;
-  const text = canonical(signed, order);
-  const bytes = spec.manifest_terminator === 'none' ? utf8(text) : withLf(utf8(text));
+  const text =
+    spec.manifest_style === 'pretty'
+      ? JSON.stringify(signed, null, 2)
+      : spec.manifest_style === 'spaced'
+        ? spaceBetweenTokens(canonical(signed, order))
+        : canonical(signed, order);
+  const bytes =
+    spec.manifest_terminator === 'none'
+      ? utf8(text)
+      : spec.manifest_terminator === 'two'
+        ? withLf(withLf(utf8(text)))
+        : withLf(utf8(text));
   return { signed, bytes };
 }
 
@@ -481,7 +614,12 @@ function buildArtifact(spec) {
   const body = spec.body ?? CONTENT_REVISIONS;
   const lastRevision = body[body.length - 1];
   const contentBytes = spec.content_bytes ?? utf8(lastRevision);
-  const defaultLog = buildLog(spec.log ?? DEFAULT_LOG, body).bytes;
+  const built = buildLog(spec.log ?? DEFAULT_LOG, body);
+  // `log_order` selects which lines are in the file and in what order. Each line
+  // is signed on its own, so reordering or dropping one changes no signature:
+  // the chain is the only thing that notices.
+  const ordered = spec.log_order === undefined ? built.lines : spec.log_order.map((index) => built.lines[index]);
+  const defaultLog = concatBytes(ordered);
   const logBytes =
     spec.log_bytes !== undefined
       ? utf8(spec.log_bytes)
@@ -506,12 +644,33 @@ function buildArtifact(spec) {
   for (const extra of spec.extra_entries ?? []) entries.push({ name: extra.name, data: extra.data, method: extra.method });
   if (spec.entry_order === 'reversed') entries = [...entries].reverse();
 
-  return { bytes: zipArchive(entries, spec.zip ?? {}), manifest: manifest.signed, log: logBytes };
+  const bytes = zipArchive(entries, spec.zip ?? {});
+  // `truncate_tail` is how the truncation cases are built: a prefix of a file
+  // that was otherwise valid, reported as a prefix rather than as a document.
+  const truncated = spec.truncate_tail === undefined ? bytes : bytes.slice(0, Math.max(0, bytes.length - spec.truncate_tail));
+  return { bytes: truncated, manifest: manifest.signed, log: logBytes };
 }
 /* -------------------------------- cases -------------------------------- */
 
 /** The clean log, built once so that the tamper cases can quote its bytes. */
 const CLEAN_LOG = buildLog(DEFAULT_LOG);
+
+/**
+ * The hash of the first line of the three-entry log: a parent that already has
+ * a child, which is what a fork is made of. Computed from the clean log rather
+ * than guessed, because a parent is a digest of bytes.
+ */
+const THREE_ENTRY_LINE1 = hex(sha256(buildLog(THREE_ENTRY_LOG).lines[0]));
+
+/**
+ * SPEC.md section 3.7: one JSON document may not exceed 1 MiB. The number is
+ * written here rather than imported, because the kit is the independent
+ * implementation and takes nothing from the reader but the verdict.
+ */
+const MAX_JSON_DOCUMENT_BYTES = 1024 * 1024;
+
+/** A digest of bytes nobody has, for the case where the manifest's digest moves alone. */
+const UNRELATED_DIGEST = hex(sha256(utf8('A digest of a document nobody has.\n')));
 
 /**
  * One entry's summary is changed and every signature and parent is left as it
@@ -544,6 +703,11 @@ const FOREIGN_KEY_ID = `ed25519:${'0'.repeat(64)}`;
  * written before the verifier is asked: `fail` and `unsupported` are the exact
  * sets of checks that must carry those statuses, with the reason code each
  * must carry. `skips` is the number of checks that may not be reached.
+ *
+ * The cases from `test/adversarial.md` onward are the adversarial pass of
+ * Phase 1.5. The table there states the same expectations in prose, and
+ * `test/adversarial.test.js` replays both: the kit proves the verifier agrees
+ * with the record, and the table proves the record is what the spec says.
  *
  * @type {{ name: string, note: string, spec: object, expect: object }[]}
  */
@@ -741,6 +905,236 @@ const CASES = [
     note: 'created_at is a date with no time. The manifest parses, is canonical, and is signed over this value, so the rule that reads the fields is the one that refuses it, and every check that needs a manifest value is left unproven rather than passed.',
     spec: { created_at: '2026-01-01' },
     expect: { verdict: 'BROKEN', exit_code: 2, fail: { 'L0.MANIFEST.FIELDS': 'MALFORMED' }, unsupported: {}, skips: 7 },
+  },
+
+  /* ------------- Phase 1.5: the adversarial pass (test/adversarial.md) ------------- */
+
+  {
+    name: 'truncated-last-byte',
+    note: 'A valid artifact with its last byte removed. The end record is now one byte short, so there is no archive to walk: one FAIL and 29 checks that were never reached.',
+    spec: { truncate_tail: 1 },
+    expect: { verdict: 'BROKEN', exit_code: 2, fail: { 'L0.ZIP.READABLE': 'MALFORMED' }, unsupported: {}, skips: 29 },
+  },
+  {
+    name: 'truncated-eocd',
+    note: 'The last 8 bytes are gone, which cuts the end-of-central-directory record in half. A reader that searched forward would find a signature and believe it.',
+    spec: { truncate_tail: 8 },
+    expect: { verdict: 'BROKEN', exit_code: 2, fail: { 'L0.ZIP.READABLE': 'MALFORMED' }, unsupported: {}, skips: 29 },
+  },
+  {
+    name: 'truncated-mid-header',
+    note: 'The last 40 bytes are gone: the end record and part of the central directory. The third point in the truncation neighborhood that test/adversarial.test.js walks byte by byte.',
+    spec: { truncate_tail: 40 },
+    expect: { verdict: 'BROKEN', exit_code: 2, fail: { 'L0.ZIP.READABLE': 'MALFORMED' }, unsupported: {}, skips: 29 },
+  },
+  {
+    name: 'missing-manifest',
+    note: 'The archive holds content.md and provenance.jsonl and no manifest. The entry set is broken, and every check that needs a manifest value is unproven: 12 checks that were never reached, and no pass among them.',
+    spec: { omit: ['manifest.json'] },
+    expect: { verdict: 'BROKEN', exit_code: 2, fail: { 'L0.ZIP.ENTRY_SET': 'MISSING' }, unsupported: {}, skips: 12 },
+  },
+  {
+    name: 'missing-content',
+    note: 'The archive holds the manifest and the log and no content.md. The manifest and the last entry still agree about the digest of a document that is not in the file, so the entry set is the check that refuses this one.',
+    spec: { omit: ['content.md'] },
+    expect: { verdict: 'BROKEN', exit_code: 2, fail: { 'L0.ZIP.ENTRY_SET': 'MISSING' }, unsupported: {}, skips: 2 },
+  },
+  {
+    name: 'stored-declared-deflated',
+    note: 'content.md is stored and declares method 8. The bytes are what they are and the declaration is a lie, so the entry cannot be decoded and nothing that would have read it can run.',
+    spec: { entry_overrides: { 'content.md': { declared_method: 8 } } },
+    expect: { verdict: 'BROKEN', exit_code: 2, fail: { 'L0.ZIP.ENTRY_DATA': 'DECODE_ERROR' }, unsupported: {}, skips: 4 },
+  },
+  {
+    name: 'deflate-declared-stored',
+    note: 'content.md is raw-deflated and declares method 0, so the bytes a reader takes as the document are the compressed stream. The size, the CRC-32, the UTF-8 and the digest each disagree with it in their own words.',
+    spec: { entry_overrides: { 'content.md': { method: 8, declared_method: 0 } } },
+    expect: {
+      verdict: 'BROKEN',
+      exit_code: 2,
+      fail: {
+        'L0.ZIP.SIZES': 'MISMATCH',
+        'L0.ZIP.CRC32': 'MISMATCH',
+        'L0.CONTENT.UTF8': 'DECODE_ERROR',
+        'L0.CONTENT.HASH': 'MISMATCH',
+      },
+      unsupported: {},
+      skips: 0,
+    },
+  },
+  {
+    name: 'manifest-too-large',
+    note: 'The manifest is one byte over the declared ceiling for a single JSON document. The bytes decode and the entry is intact, and this verifier refuses to parse a document whose size it did not agree to parse: LIMIT_EXCEEDED, never a slow pass.',
+    spec: { title: 'a'.repeat(MAX_JSON_DOCUMENT_BYTES), zip: { method: 8 } },
+    expect: { verdict: 'BROKEN', exit_code: 2, fail: { 'L0.MANIFEST.PARSE': 'LIMIT_EXCEEDED' }, unsupported: {}, skips: 11 },
+  },
+  {
+    name: 'manifest-pretty-printed',
+    note: 'The same manifest value, signed correctly, indented as JSON.stringify writes it. The value is right and the bytes are not the canonical bytes for that value, which is what NON_CANONICAL means.',
+    spec: { manifest_style: 'pretty' },
+    expect: { verdict: 'BROKEN', exit_code: 2, fail: { 'L0.MANIFEST.CANONICAL': 'NON_CANONICAL' }, unsupported: {}, skips: 0 },
+  },
+  {
+    name: 'manifest-spaced',
+    note: 'The canonical manifest with one space inserted between every pair of tokens, outside strings. Well-formed JSON, the same value, different bytes.',
+    spec: { manifest_style: 'spaced' },
+    expect: { verdict: 'BROKEN', exit_code: 2, fail: { 'L0.MANIFEST.CANONICAL': 'NON_CANONICAL' }, unsupported: {}, skips: 0 },
+  },
+  {
+    name: 'manifest-no-trailing-newline',
+    note: 'Canonical bytes with the terminator missing. A file is one canonical value followed by exactly one LF, and zero LFs is not one.',
+    spec: { manifest_terminator: 'none' },
+    expect: { verdict: 'BROKEN', exit_code: 2, fail: { 'L0.MANIFEST.CANONICAL': 'NON_CANONICAL' }, unsupported: {}, skips: 0 },
+  },
+  {
+    name: 'manifest-two-trailing-newlines',
+    note: 'Canonical bytes followed by two LFs. The value ends where the value ends, and a second terminator is a byte nobody signed.',
+    spec: { manifest_terminator: 'two' },
+    expect: { verdict: 'BROKEN', exit_code: 2, fail: { 'L0.MANIFEST.CANONICAL': 'NON_CANONICAL' }, unsupported: {}, skips: 0 },
+  },
+  {
+    name: 'manifest-signature-over-pretty',
+    note: 'The manifest bytes are canonical and the signature covers the indented spelling of the same value. Both halves are internally consistent, and they are not about the same bytes.',
+    spec: { manifest_signature: 'over-pretty' },
+    expect: { verdict: 'BROKEN', exit_code: 2, fail: { 'L1.MANIFEST.SIGNATURE': 'MISMATCH' }, unsupported: {}, skips: 0 },
+  },
+  {
+    name: 'manifest-signature-without-lf',
+    note: 'The manifest bytes are canonical and the signature covers them with the closing LF left off. One byte is the whole difference, which is why the LF is part of the signed bytes at all.',
+    spec: { manifest_signature: 'without-lf' },
+    expect: { verdict: 'BROKEN', exit_code: 2, fail: { 'L1.MANIFEST.SIGNATURE': 'MISMATCH' }, unsupported: {}, skips: 0 },
+  },
+  {
+    name: 'content-same-length-swapped',
+    note: 'content.md is replaced by a different valid Markdown document of exactly the same byte length. No size check could ever notice, which is why the digest is the thing that has to.',
+    spec: { content_bytes: utf8(SAME_LENGTH_CONTENT) },
+    expect: { verdict: 'BROKEN', exit_code: 2, fail: { 'L0.CONTENT.HASH': 'MISMATCH' }, unsupported: {}, skips: 0 },
+  },
+  {
+    name: 'content-hash-rewritten',
+    note: 'The manifest declares a digest of bytes nobody has, and content.md is untouched. The signature is valid over the new digest, and the log still declares the old one.',
+    spec: { manifest_content_sha256: UNRELATED_DIGEST },
+    expect: {
+      verdict: 'BROKEN',
+      exit_code: 2,
+      fail: { 'L0.CONTENT.HASH': 'MISMATCH', 'L2.CHAIN.HEAD_MATCHES_CONTENT': 'MISMATCH' },
+      unsupported: {},
+      skips: 0,
+    },
+  },
+  {
+    name: 'content-and-manifest-changed',
+    note: 'The content and the manifest digest change together and the manifest signature is not recomputed: it still covers the digest that was there before. New content, a manifest that describes it, and a signature about the old one.',
+    spec: {
+      content_bytes: utf8(GROWN_CONTENT),
+      manifest_content_sha256: hex(sha256(utf8(GROWN_CONTENT))),
+      sign_content_sha256: hex(sha256(utf8(CONTENT_REVISIONS[1]))),
+    },
+    expect: {
+      verdict: 'BROKEN',
+      exit_code: 2,
+      fail: { 'L1.MANIFEST.SIGNATURE': 'MISMATCH', 'L2.CHAIN.HEAD_MATCHES_CONTENT': 'MISMATCH' },
+      unsupported: {},
+      skips: 0,
+    },
+  },
+  {
+    name: 'empty-content',
+    note: 'content.md is empty, and the manifest and the log both declare the digest of the empty string. VERIFIED is what the spec requires: the empty byte string is valid UTF-8, carries no mark, and has a SHA-256 like any other byte string. A format whose claim is that the bytes are the document does not also get to require that the document say something.',
+    spec: { body: ['', ''] },
+    expect: { verdict: 'VERIFIED', exit_code: 0, fail: {}, unsupported: {}, skips: 0 },
+  },
+  {
+    name: 'manifest-signature-truncated',
+    note: 'The manifest signature is one byte short: 63 bytes where Ed25519 uses 64. It is not a signature that failed; it is not a signature.',
+    spec: { manifest_signature: 'short' },
+    expect: { verdict: 'BROKEN', exit_code: 2, fail: { 'L1.MANIFEST.SIGNATURE': 'MALFORMED' }, unsupported: {}, skips: 0 },
+  },
+  {
+    name: 'manifest-signed-by-other-key',
+    note: 'A second key signed the manifest and the manifest carries the first key. The signature is a real signature by somebody, and not by the author this file names.',
+    spec: { manifest_signature: 'other-key' },
+    expect: { verdict: 'BROKEN', exit_code: 2, fail: { 'L1.MANIFEST.SIGNATURE': 'MISMATCH' }, unsupported: {}, skips: 0 },
+  },
+  {
+    name: 'manifest-public-key-swapped',
+    note: "public_key is a second key's. key_id, the manifest signature and every entry signature are the first key's, so the key id no longer derives from the key beside it and no signature in the file verifies against it.",
+    spec: { public_key: base64url(OTHER_PUBLIC_KEY) },
+    expect: {
+      verdict: 'BROKEN',
+      exit_code: 2,
+      fail: {
+        'L1.MANIFEST.KEY_ID': 'MISMATCH',
+        'L1.MANIFEST.SIGNATURE': 'MISMATCH',
+        'L1.PROVENANCE.SIGNATURES': 'MISMATCH',
+      },
+      unsupported: {},
+      skips: 0,
+    },
+  },
+  {
+    name: 'key-id-not-derived',
+    note: "key_id is not the derivation of the public_key beside it, and every signature is the real key's. The entries then name a key the manifest does not carry.",
+    spec: { key_id: FOREIGN_KEY_ID },
+    expect: {
+      verdict: 'BROKEN',
+      exit_code: 2,
+      fail: {
+        'L1.MANIFEST.KEY_ID': 'MISMATCH',
+        'L1.PROVENANCE.FIRST_AUTHOR': 'MISMATCH',
+        'L1.PROVENANCE.KEYS': 'MISMATCH',
+      },
+      unsupported: {},
+      skips: 0,
+    },
+  },
+  {
+    name: 'parent-hash-unknown',
+    note: 'An entry declares a parent that is a digest of bytes nobody has: not the line before it, and not any line in the file. Every signature is valid.',
+    spec: { log: [{ ...DEFAULT_LOG[0] }, { ...DEFAULT_LOG[1], parent_override: '0'.repeat(64) }] },
+    expect: { verdict: 'BROKEN', exit_code: 2, fail: { 'L2.CHAIN.LINKS': 'MISMATCH' }, unsupported: {}, skips: 0 },
+  },
+  {
+    name: 'forked-log',
+    note: 'Three entries, and the second and third declare the same parent: one predecessor with two successors, which is a fork rather than a history. The link that breaks is the third one.',
+    spec: {
+      log: [THREE_ENTRY_LOG[0], THREE_ENTRY_LOG[1], { ...THREE_ENTRY_LOG[2], parent_override: THREE_ENTRY_LINE1 }],
+    },
+    expect: { verdict: 'BROKEN', exit_code: 2, fail: { 'L2.CHAIN.LINKS': 'MISMATCH' }, unsupported: {}, skips: 0 },
+  },
+  {
+    name: 'log-reordered',
+    note: 'The two entries of a valid log are swapped and every signature still verifies, because each entry is signed on its own. The chain is the only structure that notices, and it notices three things at once.',
+    spec: { log_order: [1, 0] },
+    expect: {
+      verdict: 'BROKEN',
+      exit_code: 2,
+      fail: {
+        'L2.CHAIN.FIRST_PARENT_NULL': 'MISMATCH',
+        'L2.CHAIN.LINKS': 'MISMATCH',
+        'L2.CHAIN.HEAD_MATCHES_CONTENT': 'MISMATCH',
+      },
+      unsupported: {},
+      skips: 0,
+    },
+  },
+  {
+    name: 'log-middle-entry-removed',
+    note: 'A three-entry log loses its middle entry. The remaining entries are canonical, signed, and in order, and the seam where the history was cut is the one thing that does not match.',
+    spec: { log: THREE_ENTRY_LOG, log_order: [0, 2] },
+    expect: { verdict: 'BROKEN', exit_code: 2, fail: { 'L2.CHAIN.LINKS': 'MISMATCH' }, unsupported: {}, skips: 0 },
+  },
+  {
+    name: 'head-describes-other-content',
+    note: "The last entry's content_sha256 is an earlier revision's digest, and it is correctly signed: the entry says what its author meant it to say, and the log no longer ends at the document the manifest declares.",
+    spec: { log: [{ ...DEFAULT_LOG[0] }, { ...DEFAULT_LOG[1], content_sha256: hex(sha256(utf8(CONTENT_REVISIONS[0]))) }] },
+    expect: { verdict: 'BROKEN', exit_code: 2, fail: { 'L2.CHAIN.HEAD_MATCHES_CONTENT': 'MISMATCH' }, unsupported: {}, skips: 0 },
+  },
+  {
+    name: 'entry-with-earlier-timestamp',
+    note: "A three-entry log whose last entry carries a timestamp before its parent's, correctly signed and correctly chained. VERIFIED is the answer, and it is the spec's answer: no check compares two timestamps, because the chain fixes order of inclusion and nothing in an artifact witnesses time. Changing the verifier to catch this one would be breaking the spec, not fixing it.",
+    spec: { log: EARLIER_TIMESTAMP_LOG },
+    expect: { verdict: 'VERIFIED', exit_code: 0, fail: {}, unsupported: {}, skips: 0 },
   },
 ];
 

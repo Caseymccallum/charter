@@ -36,14 +36,27 @@ every check it cannot perform, which is a verdict of `INCOMPLETE`, never a pass.
 ## Try it on the kit
 
 ```
-node vectors/run.js     # replay 26 artifacts against 26 recorded answers
-npm test                # the 47 tests, through node --test
+node vectors/run.js     # replay 54 artifacts against 54 recorded answers
+npm test                # the 62 tests, through node --test
 ```
 
 `vectors/run.js` is written for a reader, not for the author: it reads
 `vectors/expected.json`, reads the artifacts the record names, and asks the
 verifier for a verdict. If the bytes on disk are not the bytes the record
 describes, it says so instead of quietly agreeing.
+
+28 of those 54 artifacts are the **adversarial pass**: every way a file can lie
+that we could think of, written down in [`test/adversarial.md`](test/adversarial.md)
+before it was run, with the verdict each one must produce and the observed
+result beside it. Truncated containers, missing and duplicated entries, entries
+that lie about their own encoding, manifests that are well-formed JSON but not
+the canonical bytes, signatures computed over a different serialization, a
+signature one byte short, a key id that does not derive from its key, a fork in
+the chain, an entry removed from the middle — and two cases that are supposed to
+come back `VERIFIED`, because the format genuinely cannot tell:
+`history-rewritten` (the key holder re-signs everything) and
+`entry-with-earlier-timestamp` (nothing witnesses time). A verifier that admits
+what it cannot see is more trustworthy than one that claims to see everything.
 
 ## What is inside a `.charter` file
 
@@ -96,14 +109,14 @@ can decide from the artifact alone, and they are printed rather than guessed at.
 | `SPEC.md` | the format, and why each rule exists |
 | `verifier/` | the pure verifier: bytes in, verdict out. No clock, no disk, no network, no `node:` imports |
 | `cli/charter.js` | the only file in the project that reads a file, and the only place a verdict becomes text |
-| `vectors/` | the conformance kit: an independent builder, 26 artifacts, the recorded answers, and the replay |
-| `test/` | 47 tests, including `purity.test.js`, which enforces that the verifier stays pure |
+| `vectors/` | the conformance kit: an independent builder, 54 artifacts, the recorded answers, and the replay |
+| `test/` | 62 tests, including `purity.test.js` (the verifier stays pure), `parser.fuzz.test.js` (no input throws), and `adversarial.test.js` (the table in `adversarial.md` is a claim the tests check) |
 | `NAMING.md` | what the words in this project mean, and which ones are avoided |
 
 ## Development
 
 ```
-npm test          # node --test: discovers test/*.test.js and runs all 47
+npm test          # node --test: discovers test/*.test.js and runs all 62
 npm run kit       # replay the conformance kit
 npm run kit:build # rebuild the kit's artifacts (the author's program)
 ```

@@ -92,3 +92,58 @@ text to the parser and a corpus of hostile bytes to `verify()`, including a
 declared limit of one byte, and requires a verdict with a status and a reason
 code from the declared vocabulary every time.
 
+### The adversarial pass, written down before it was run
+
+`test/adversarial.md` is the enumeration, one row per mutation, with the verdict
+and the reason codes the specification requires and the observed result beside
+it. All 28 rows are committed fixtures in `vectors/`, so the kit grew from 26
+cases to 54, and `test/adversarial.test.js` replays the table row by row: a row
+fails unless the verifier produces the verdict and the reason codes the row
+states, and the recorded Actual column has to agree with the Expected one. Of
+37 rows, 37 pass: 11 for the container, 7 for the canonical bytes, 5 for the
+content, 6 for the signature and the key, 8 for the chain.
+
+The new fixtures also closed the one gap the plan named as a hole: an entry
+whose declared compression method is not the one its bytes are in, in both
+directions, and a manifest one byte over the document ceiling.
+
+One row was wrong when it was written, and it was the table that was wrong, not
+the spec. `deflate-declared-stored` was expected to fail the declared size and
+the declared CRC-32; the verifier also fails `L0.CONTENT.UTF8` (the compressed
+bytes are not UTF-8) and `L0.CONTENT.HASH` (they are not the declared digest).
+The verifier is right about all four: they are four different claims about the
+same bytes, and each of them is false for its own reason. The row was corrected.
+
+### What an empty `content.md` means
+
+SPEC.md section 6 now says it explicitly: `content.md` may be empty. The empty
+byte string is valid UTF-8, carries no byte order mark, and has a SHA-256 like
+any other byte string. A format whose central claim is that the bytes of the
+file are the document does not also get to require that the document say
+something. `empty-content` is `VERIFIED` in the kit on purpose.
+
+The rule for an *absent* history is the opposite and unchanged: SPEC.md section
+7 makes "at least one entry" its own check (`L0.PROVENANCE.NONEMPTY`), because
+an artifact with no history records nothing about where it came from, and
+`empty-log` is `BROKEN` on purpose. The question the plan said the spec had to
+answer is answered there.
+
+### Timestamps are not ordered
+
+SPEC.md section 11 now states what was already true of the checks: no check
+compares two timestamps. An entry whose `timestamp` precedes its parent's is
+signed, chained, and `VERIFIED`, and `entry-with-earlier-timestamp` is that case
+in the kit. It is recorded rather than repaired, because a rule that timestamps
+must increase would catch an author who typed an earlier date while still
+failing to catch the key holder who rewrote the entire log — and the second is
+the case the format cannot see at all.
+
+### The re-signing case, asserted
+
+`history-rewritten` returns `VERIFIED`, and `test/adversarial.test.js` asserts
+exactly that: the verdict, the exit code, no check left unproven, the
+`KEY_HOLDER_CAN_REWRITE_HISTORY` caveat present in the verdict, and the caveat
+printed by `cli/charter.js` for a person reading the human report. The same file
+asserts that a rewritten log and a freshly written one are identical check for
+check, which is the gap stated as sharply as it can be.
+

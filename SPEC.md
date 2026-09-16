@@ -268,6 +268,13 @@ The document. Three requirements and no others:
   endings, and never rewrites the bytes. It checks that the bytes are the bytes
   that were signed.
 
+Emptiness is not a defect. `content.md` may be the empty byte string: it is
+valid UTF-8, it carries no byte order mark, and its SHA-256 is a digest like any
+other. A format whose central claim is that the bytes of the file are the
+document does not also get to require that the document say something, so the
+`empty-content` case in the conformance kit is `VERIFIED` on purpose. The rule
+for an absent *history* is the opposite, and section 7 says why.
+
 ## 7. `provenance.jsonl`
 
 The history. One JSON object per line, each line closed by exactly one LF, and
@@ -455,7 +462,11 @@ checks: no amount of care could decide them from the artifact alone.
    signed by the signer. Nothing in the format witnesses a time, so an entry can
    carry any instant its author chose. That is why the container carries no DOS
    clock reading either (section 3.6): the only times in the file are the ones
-   the author signed for, and they are claims, not evidence.
+   the author signed for, and they are claims, not evidence. Two timestamps are
+   never compared: an entry whose `timestamp` precedes its parent's is signed,
+   chained, and `VERIFIED`, because the chain fixes the order of *inclusion* and
+   nothing in an artifact witnesses *time*. The `entry-with-earlier-timestamp`
+   case in the kit is that case, kept `VERIFIED` on purpose.
 5. **Content is not judged.** This verifier reads the bytes of `content.md` and
    checks that they are UTF-8 and match the declared digest. It does not
    interpret them, and a well-formed artifact can hold content that is false,
@@ -542,23 +553,52 @@ world outside a byte array.
   different claims and a reader needs to know which one they are looking at.
 
 ```
-node vectors/run.js            # replay the kit: 26 artifacts, 26 recorded answers
+node vectors/run.js            # replay the kit: 54 artifacts, 54 recorded answers
 node vectors/build.js          # rebuild the artifacts (the author's program)
 node vectors/build.js --check  # rebuild in memory, and refuse if the record is stale
 ```
 
-The 26 cases are the ways an artifact can be wrong. `valid` is the artifact all
-of them are variations on, and `valid-deflate` is the same document with deflated
-entries: they verify identically, because the compression method is not part of
-what the document is. The container cases are `not-a-zip`, `missing-entry`,
-`extra-entry`, `duplicate-entry`, `encrypted-flag`, `unsupported-method`,
-`wrong-declared-size`, `wrong-declared-crc` and `stamped-by-a-clock` (a DOS
-stamp left in by a writer that behaved like a file system). The document cases
-are `noncanonical-manifest`, `manifest-extra-field`, `manifest-field-unreadable`,
-`unsupported-format`, `content-bom` and `content-tampered`. The log cases are
-`unterminated-log`, `truncated-log`, `empty-log`, `entry-extra-field` and
-`entry-edited`. The signed-claim cases are `bad-manifest-signature`,
-`foreign-key-entry` and `history-rewritten`.
+The 26 Phase 1 cases are the ways an artifact can be wrong. `valid` is the
+artifact all of them are variations on, and `valid-deflate` is the same document
+with deflated entries: they verify identically, because the compression method is
+not part of what the document is. The container cases are `not-a-zip`,
+`missing-entry`, `extra-entry`, `duplicate-entry`, `encrypted-flag`,
+`unsupported-method`, `wrong-declared-size`, `wrong-declared-crc` and
+`stamped-by-a-clock` (a DOS stamp left in by a writer that behaved like a file
+system). The document cases are `noncanonical-manifest`,
+`manifest-extra-field`, `manifest-field-unreadable`, `unsupported-format`,
+`content-bom` and `content-tampered`. The log cases are `unterminated-log`,
+`truncated-log`, `empty-log`, `entry-extra-field` and `entry-edited`. The
+signed-claim cases are `bad-manifest-signature`, `foreign-key-entry` and
+`history-rewritten`.
+
+The other 28 are the **adversarial pass**, and its enumeration is written down
+in `test/adversarial.md` before it is run: one row per mutation, with the
+verdict and the reason codes the specification requires, and the observed
+result beside them. The rows cover the container (three points in the
+truncation neighborhood, each of the three entries missing in turn, a
+misdeclared compression method in both directions, a manifest one byte over the
+document ceiling), the canonical bytes (pretty-printed, spaced, no terminator,
+two terminators, and two signatures computed over a different serialization of
+the right value), the content (a same-length replacement, a rewritten digest, a
+stale signature), the signature and the key (one byte short, one bit flipped,
+signed by another key, a swapped public key, a key id that does not derive from
+the key beside it), and the chain (an unknown parent, a fork, reordering, an
+entry removed from the middle, a head that describes other content).
+
+Two rows have to come back `VERIFIED`:
+
+- **`history-rewritten`**: the key holder replaces every entry and re-signs the
+  whole log. Nothing in the file can tell that from a document written that way,
+  so the verdict is `VERIFIED` and the caveat says so. A verifier that admitted
+  what it cannot see is more trustworthy than one that claimed to see
+  everything.
+- **`entry-with-earlier-timestamp`**: an entry whose timestamp precedes its
+  parent's. No check compares two timestamps, because nothing in an artifact
+  witnesses time.
+
+If a change to the verifier makes either of those come back `BROKEN`, the change
+is breaking this document, not improving it.
 
 Two properties in the kit are worth keeping when it grows, and both live in
 `test/vectors.test.js` rather than in the kit itself, because they are properties
@@ -568,6 +608,14 @@ of the verifier rather than answers about one file:
   checks a neighborhood, not one point in it.
 - **Every truncation of a valid artifact must be refused.** A reader that accepts
   a prefix of a file has agreed to judge incomplete bytes.
+
+`test/adversarial.test.js` adds the third: **the table in `test/adversarial.md`
+is a claim the tests check**, row by row, by replaying each fixture and comparing
+the verdict and the reason codes with what the row states. A table nobody runs is
+prose. The same file walks every truncation in the last 512 bytes of
+`valid.charter` rather than the three committed points, and it asserts that the
+re-signing case is `VERIFIED` *and* that the caveat which qualifies it reaches a
+person through `cli/charter.js`.
 
 ## 14. What changes a version
 
