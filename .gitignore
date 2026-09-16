@@ -1,0 +1,9 @@
+node_modules/
+npm-debug.log*
+.DS_Store
+Thumbs.db
+*.tmp
+*.local
+
+# vectors/out/ is committed on purpose: the artifacts are the kit. A record of
+# files nobody has is not a record, so these are not ignored.

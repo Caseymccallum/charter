@@ -1,0 +1,22 @@
+{
+  "name": "charter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": ".charter: a local-first document format with checkable edit history, and a verifier a stranger can run without trusting the author.",
+  "license": "MIT",
+  "bin": {
+    "charter": "./cli/charter.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "test": "node --test",
+    "verify": "node cli/charter.js verify",
+    "kit": "node vectors/run.js",
+    "kit:build": "node vectors/build.js"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

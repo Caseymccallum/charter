@@ -1,0 +1,420 @@
+{
+  "kit": "charter conformance vectors",
+  "format": "charter/0.1",
+  "built_by": "vectors/build.js",
+  "note": "The expected verdicts in this file were written before the verifier was asked, and vectors/build.js refuses to write this file when the verifier disagrees with one of them. `fail` and `unsupported` map a check id to the reason code it must carry; `skips` counts the checks that must not be reached.",
+  "cases": [
+    {
+      "name": "valid",
+      "file": "out/valid.charter",
+      "bytes": 1884,
+      "sha256": "e960972c0f8e9010a92f5bc78ee2137216ee5dcb4533a99a9affe3e70709c356",
+      "note": "The artifact the format is designed to accept: two signed entries, stored entry data, UTF-8 entry names.",
+      "expected": {
+        "verdict": "VERIFIED",
+        "exit_code": 0,
+        "fail": {},
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "valid-deflate",
+      "file": "out/valid-deflate.charter",
+      "bytes": 1378,
+      "sha256": "ae3b733bde494e5a1613ef4a919e1bb3e10154e0e4156806c5ecd9c3495f0a02",
+      "note": "The same artifact with every entry raw-deflated: method 8 is the other method charter/0.1 defines, and it must not change the verdict.",
+      "expected": {
+        "verdict": "VERIFIED",
+        "exit_code": 0,
+        "fail": {},
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "not-a-zip",
+      "file": "out/not-a-zip.charter",
+      "bytes": 100,
+      "sha256": "8952f26c6dab2c168ae469504e5f29ae8b27815c552529f552a3eb660bb2ead0",
+      "note": "A text file named .charter. There is no container, so nothing inside it is examined: one FAIL and 29 SKIP, never a pass.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.READABLE": "MALFORMED"
+        },
+        "unsupported": {},
+        "skips": 29
+      }
+    },
+    {
+      "name": "missing-entry",
+      "file": "out/missing-entry.charter",
+      "bytes": 855,
+      "sha256": "3127a876ffee22b4d84293d3af4a25d16b9b2232016f9a9a2e022307754ec1b3",
+      "note": "provenance.jsonl is absent. The entry set is broken, and every check that would have read the log is unproven rather than passed.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.ENTRY_SET": "MISSING"
+        },
+        "unsupported": {},
+        "skips": 12
+      }
+    },
+    {
+      "name": "unreadable-manifest",
+      "file": "out/unreadable-manifest.charter",
+      "bytes": 1884,
+      "sha256": "49d20fcc71dd07b86c8e97b1f4c92fc7d84c58cac002ae4a641babce3d16c6d0",
+      "note": "manifest.json is present but its bytes cannot be read, so nothing that depends on it can be established. This is the case that catches a check with no result at all.",
+      "expected": {
+        "verdict": "INCOMPLETE",
+        "exit_code": 1,
+        "fail": {},
+        "unsupported": {
+          "L0.ZIP.ENTRY_DATA": "UNSUPPORTED_FEATURE"
+        },
+        "skips": 14
+      }
+    },
+    {
+      "name": "duplicate-entry",
+      "file": "out/duplicate-entry.charter",
+      "bytes": 1980,
+      "sha256": "931045f6b1680cf5c559d2c363f1d934724e3610f89ac260cf8d4a857b85fabe",
+      "note": "Two entries named content.md. The first one parses, so every other check passes, and the artifact is still broken: a name identifies one entry.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.ENTRY_SET": "DUPLICATE"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "extra-entry",
+      "file": "out/extra-entry.charter",
+      "bytes": 2002,
+      "sha256": "11159f904ad5a547c95daafb7e65517a2518edf9e3afdedcf34d50c005a8058f",
+      "note": "A fourth entry, notes.txt. The format defines three, so the fourth is refused rather than ignored.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.ENTRY_SET": "EXTRA"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "encrypted-flag",
+      "file": "out/encrypted-flag.charter",
+      "bytes": 1884,
+      "sha256": "86f557eb93204601ddcea07bc322c5cf3a022025c208254213c0d3d3114c146a",
+      "note": "Every entry sets general purpose bit 0. Every byte of the artifact is otherwise exactly the valid case, and the verdict is still not VERIFIED: a feature this verifier does not implement is never a pass.",
+      "expected": {
+        "verdict": "INCOMPLETE",
+        "exit_code": 1,
+        "fail": {},
+        "unsupported": {
+          "L0.ZIP.FLAGS": "UNSUPPORTED_FEATURE"
+        },
+        "skips": 0
+      }
+    },
+    {
+      "name": "unsupported-method",
+      "file": "out/unsupported-method.charter",
+      "bytes": 1884,
+      "sha256": "a1587f9da634ab5c84413eeb6ab72d819c6aadd87dd9dd8b2e43080c37956446",
+      "note": "Every entry declares compression method 9. charter/0.1 defines 0 and 8, so the entries cannot be read and most of the verdict is a list of questions that were never reached.",
+      "expected": {
+        "verdict": "INCOMPLETE",
+        "exit_code": 1,
+        "fail": {},
+        "unsupported": {
+          "L0.ZIP.ENTRY_DATA": "UNSUPPORTED_FEATURE"
+        },
+        "skips": 23
+      }
+    },
+    {
+      "name": "unsupported-format",
+      "file": "out/unsupported-format.charter",
+      "bytes": 1884,
+      "sha256": "c2c148416eb0937f3f9a45af88bcaeb7e8eb3c51aed1e301c92c99258c8fe0e7",
+      "note": "The manifest declares charter/0.2, which this verifier does not implement. The artifact is not called broken: it is called unproven, and the rules of a version nobody read are not applied to it.",
+      "expected": {
+        "verdict": "INCOMPLETE",
+        "exit_code": 1,
+        "fail": {},
+        "unsupported": {
+          "L0.FORMAT.IDENTIFIER": "UNSUPPORTED_VERSION"
+        },
+        "skips": 19
+      }
+    },
+    {
+      "name": "noncanonical-manifest",
+      "file": "out/noncanonical-manifest.charter",
+      "bytes": 1884,
+      "sha256": "00420a512bc37c97ff9ceee498743dd37adc4c9831f69fe674951d3de275f1c1",
+      "note": "manifest.json holds the right value, signed correctly, in a different key order. One byte-level rule is broken and nothing else is: the same value in another spelling is not this format.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.MANIFEST.CANONICAL": "NON_CANONICAL"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "manifest-extra-field",
+      "file": "out/manifest-extra-field.charter",
+      "bytes": 1932,
+      "sha256": "6e6d379a337beb167776c59b6075074eead6f4989e5aaf8289b8ddf3bd050626",
+      "note": "The manifest carries a validly signed field this version has no rule for. The signature is fine, and the artifact is still refused.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.MANIFEST.EXTRA_FIELDS": "UNKNOWN_FIELD"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "entry-extra-field",
+      "file": "out/entry-extra-field.charter",
+      "bytes": 1931,
+      "sha256": "0fc07343343454d9860b62b32023c59cebb8bf0162452a27428ddb98e9653774",
+      "note": "The second entry carries a validly signed field this version has no rule for, with the chain rebuilt so that nothing else is wrong.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.PROVENANCE.EXTRA_FIELDS": "UNKNOWN_FIELD"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "bad-manifest-signature",
+      "file": "out/bad-manifest-signature.charter",
+      "bytes": 1884,
+      "sha256": "bfe414eafa2a630201237dc4e26955e815c7630578f92032c77bf23a717c467c",
+      "note": "One bit of the manifest signature is flipped. The bytes are a well-formed signature, and they are not this author's signature over these bytes.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L1.MANIFEST.SIGNATURE": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "content-tampered",
+      "file": "out/content-tampered.charter",
+      "bytes": 1912,
+      "sha256": "c47a393d442ae8bf797a0a2fce27c453e2c2550657b3c35aab7e1f4ee16a99cd",
+      "note": "The bytes of content.md are changed and the archive is written correctly around them. The signature and the chain are untouched and both still pass: the content digest is the check that catches this edit.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.CONTENT.HASH": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "content-bom",
+      "file": "out/content-bom.charter",
+      "bytes": 1887,
+      "sha256": "a9f7f807c206600255899c2a3a9713dce03ee2ae5a847a617146529255e64f81",
+      "note": "content.md begins with a UTF-8 byte order mark. The mark is well-formed UTF-8, and the bytes of the file are the content, so a mark would be content too.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.CONTENT.UTF8": "NON_CANONICAL",
+          "L0.CONTENT.HASH": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "entry-edited",
+      "file": "out/entry-edited.charter",
+      "bytes": 1859,
+      "sha256": "d44e3f2749b616f51dce8de4078f7849d38056f6215817cbeb9484b8c1711046",
+      "note": "A summary is changed and no signature is recomputed. The stale signature fails, and so does the parent hash that still points at the line that used to be there.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L1.PROVENANCE.SIGNATURES": "MISMATCH",
+          "L2.CHAIN.LINKS": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "history-rewritten",
+      "file": "out/history-rewritten.charter",
+      "bytes": 1815,
+      "sha256": "c80e0fd3a67f890a27e2b3cab42c2840d3704ba22184e281b3aaaa99b3faac5f",
+      "note": "The key holder changes both summaries and re-signs every entry, rebuilding the parents. VERIFIED is the correct answer here, not a bug: this is the KEY_HOLDER_CAN_REWRITE_HISTORY limitation, kept as a case so that the gap is visible instead of theoretical.",
+      "expected": {
+        "verdict": "VERIFIED",
+        "exit_code": 0,
+        "fail": {},
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "foreign-key-entry",
+      "file": "out/foreign-key-entry.charter",
+      "bytes": 1884,
+      "sha256": "c72cddd56e0c5533b1c67cea9dffd500460ca8e212176a4152f24a018bcd58d8",
+      "note": "The second entry names a key id that is not what the artifact's public key derives, and it is signed with the real key. The signature is valid and the entry is not this author's.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L1.PROVENANCE.KEYS": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "truncated-log",
+      "file": "out/truncated-log.charter",
+      "bytes": 1396,
+      "sha256": "ec4232cdcbc099bec526213a2b9e78fd94fade59678ac5218e84ec0beb55fd9b",
+      "note": "The last entry is gone, so the chain is shorter than the document it describes: no entry declares the digest of the content the manifest declares, while every signature still checks out.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L2.CHAIN.HEAD_MATCHES_CONTENT": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "empty-log",
+      "file": "out/empty-log.charter",
+      "bytes": 963,
+      "sha256": "90feba2b5f0a0bc15ecee2e606317a6a8abd1e8b87eaf751ac0469106537332b",
+      "note": "provenance.jsonl is present and empty. Nothing is malformed and nothing is signed, and an artifact that records nothing about where it came from is refused.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.PROVENANCE.NONEMPTY": "MISSING"
+        },
+        "unsupported": {},
+        "skips": 3
+      }
+    },
+    {
+      "name": "unterminated-log",
+      "file": "out/unterminated-log.charter",
+      "bytes": 1883,
+      "sha256": "43b2c832e42206708a909c85ece0152f2ce7dd92c177a86e6804d814798ec2c4",
+      "note": "The last line has no LF. The entries before it are canonical and signed, and a file whose last line has no terminator is not a log of LF-terminated lines.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.PROVENANCE.PARSE": "MALFORMED"
+        },
+        "unsupported": {},
+        "skips": 11
+      }
+    },
+    {
+      "name": "wrong-declared-size",
+      "file": "out/wrong-declared-size.charter",
+      "bytes": 1884,
+      "sha256": "680d04859038b779b960d18dcac066b8c8f9eeacd040a144a9d7b5e372caf194",
+      "note": "content.md declares an uncompressed size it does not have. The bytes decode and the CRC matches, and the container still lies about the entry.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.SIZES": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "wrong-declared-crc",
+      "file": "out/wrong-declared-crc.charter",
+      "bytes": 1884,
+      "sha256": "3a3ba2e33419c70117bde6fed261e1f387f8f826ce27cf042c2e1f7d0add193d",
+      "note": "content.md declares CRC-32 0 and holds other bytes, which is the one container claim that parsing alone cannot check.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.CRC32": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "stamped-by-a-clock",
+      "file": "out/stamped-by-a-clock.charter",
+      "bytes": 1884,
+      "sha256": "b12a790d78fe3fc286f4493377e2bf77b13ff79b194939f030c61d06af794f2d",
+      "note": "Every entry carries a real date and time in its DOS stamp, written the same way in both copies, with the entries themselves untouched. A file whose bytes are the record cannot also carry a reading of a clock: with one, the same document written twice would be two files.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.METADATA": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "manifest-field-unreadable",
+      "file": "out/manifest-field-unreadable.charter",
+      "bytes": 1874,
+      "sha256": "253df4e7572666f3235a6a1c54881a7cedcf62681e049200377168338d67d1d0",
+      "note": "created_at is a date with no time. The manifest parses, is canonical, and is signed over this value, so the rule that reads the fields is the one that refuses it, and every check that needs a manifest value is left unproven rather than passed.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.MANIFEST.FIELDS": "MALFORMED"
+        },
+        "unsupported": {},
+        "skips": 7
+      }
+    }
+  ]
+}
