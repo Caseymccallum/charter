@@ -43,10 +43,13 @@ browser, and `test/editor.test.js` starts it the same way a reader does.
 **No network requests are made.** The page asks for `editor/index.html`, its own
 module, and the modules under `verifier/` that module imports — all from the same
 local server — and for nothing else, not even a favicon, which is a `data:` URL.
-That is asserted twice: statically, by scanning the page for every API that could
-reach out (`fetch`, `XMLHttpRequest`, `WebSocket`, `sendBeacon`, …) and for every
-resource it names; and live, by recording what the server is asked for while the
-tests drive the page, and asserting that every request is `editor/…` or
+A browser's own developer tools show exactly that: the Network tab lists the
+document, `editor.js` and the `verifier/**` modules, and if you leave it open
+while you drop a file and seal one, it stays that list. That is asserted twice
+here as well: statically, by scanning the page for every API that could reach out
+(`fetch`, `XMLHttpRequest`, `WebSocket`, `sendBeacon`, …) and for every resource
+it names; and live, by recording what the server is asked for while the tests
+drive the page, and asserting that every request is `editor/…` or
 `verifier/…`.
 
 ## Read mode
