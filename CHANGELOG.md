@@ -4,6 +4,112 @@ Recorded because they are decisions about published behaviour, not internal
 tidying. The format identifier in `manifest.format` changes when section 14 of
 [SPEC.md](SPEC.md) changes; this file records what changed, when, and why.
 
+## Unreleased — charter/0.1, the producer
+
+The format is unchanged. `producer/**` and four verbs were added, and the
+decisions below are decisions about published behaviour: what `charter seal`
+writes, what it refuses, and what a citation says. SPEC.md gains section 15,
+which states that the producer is a reference implementation rather than part of
+the format.
+
+### The producer writes through the verifier's own writer
+
+`seal` was written last for a reason, and the first thing it was given was not a
+ZIP writer of its own. The manifest and every provenance line are written with
+`canonicalDocument()`, the signature covers exactly what `signingInput()` returns,
+and the key id comes from `deriveKeyId()` — the same functions the verifier calls
+to check those bytes. This is the opposite of the arrangement in
+`vectors/build.js`, which stays independent on purpose, and the difference is the
+point: the kit is a second opinion about the format, while the producer is the
+other half of the implementation. Two derivations of one key id, or two writers of
+one canonical byte sequence, would agree until they did not, and the disagreement
+would be about the identity of a signer.
+
+### A seal states no time unless it is told one
+
+`charter seal content.md --key key.pem -o out.charter` is reproducible: the same
+content and the same key produce the same bytes, on every run. That could not be
+true if the producer stamped a clock by default, and section 3.6 already removed
+the clock from the container for exactly this reason — a file whose bytes are the
+record cannot also carry a reading of a clock. So the time is an argument:
+`--created-at` states one, `--now` states that the time is now, and with neither
+the manifest's `created_at` and the entry's `timestamp` are `1980-01-01T00:00:00Z`
+— the instant the container's fixed DOS stamp already means, so a file that states
+no time says so in both places rather than in one. `producer/**` contains no clock
+read at all, and `test/producer.test.js` checks that it, like the verifier, reads
+nothing but a key from outside a byte array.
+
+Entries are stored, never deflated, for the same reason: zlib's output changes
+between library versions, so a compressed entry would tie the bytes of an artifact
+to the version of the compressor that wrote it.
+
+### Two exit codes, and neither is a verdict
+
+`seal`, `inspect`, `cite` and `keygen` add `65` (the input was refused, and the
+refusal carries a reason code) and `73` (the output file could not be created).
+They reuse `64` and `66`. `verify` is unchanged: `0`, `1`, `2`, `64`, `66`, and
+only `0` is a pass. Section 14 changes a version when a *verdict* changes, and
+these two codes belong to commands that do not produce one — so the format
+identifier does not move.
+
+### Where a title comes from, and why the answer is three-valued
+
+`cite` was deferred in Phase 1 because a `.charter` file offers three different
+titles and they are not interchangeable: one the caller states, one inside
+`content.md` (covered by the digest the identifier names), and one in
+`manifest.title` (signed, but outside that digest). The decision is to use all
+three, in that order of precedence, and to say which one was used — in
+`custom.charter.title_source` and `title_origin` — rather than to pick one and
+keep quiet. A stated title wins because the person citing is the one citing; a
+captured title wins over the manifest's because it sits inside the bytes the claim
+hash covers. `seal` derives a title the same way and falls back to the content
+file's name, which is not in the document, only because `manifest.title` is
+required and a placeholder the producer invented would be worse. The derivation
+locates a `<title>` element or the first ATX heading and nothing else: no Markdown
+parsing enters the project, and no entity is decoded.
+
+### `charter keygen` exists, and does one thing
+
+`seal --key` reads a PKCS#8 PEM, and the usual way to make one is
+`openssl genpkey -algorithm ed25519`, which assumes a tool the reader may not
+have. `keygen` writes that one file with `node:crypto`, prints the key id it
+derives from it, and keeps no store, no lookup, and no copy. The README's
+deliberate absence of "key generation, storage, or lookup" still holds for the
+last two; the first is now a verb because the alternative was a documented command
+that does not run where `openssl` is not installed.
+
+### A sealed file, attacked the way the kit attacks a hand-built one
+
+`test/producer.test.js` replays the adversarial cases that apply to a single-entry
+artifact against a file `seal` wrote, and compares the failing checks with the
+reason codes `vectors/expected.json` already records for the same attack. The
+comparison is exact for `content-tampered` and `bad-manifest-signature`, and exact
+for `entry-edited` once its chain-link failure is set aside — that fixture has two
+entries, so its stale signature also breaks the link to the entry after it, and a
+one-entry artifact has no entry after it. Nothing else differed, and the verifier
+was not changed to make any of them agree.
+
+One difference is a property of the *attack* rather than of the producer. The
+kit's `content-tampered` fixture rebuilds the archive correctly around a changed
+document, so the digest is the only check that fails. A byte changed **in place**
+in a sealed file is noticed by the container first: entries are stored, so the
+bytes a stored entry's CRC-32 covers are exactly the bytes that changed, and
+`L0.ZIP.CRC32` fails beside `L0.CONTENT.HASH`. The verdict is `BROKEN` either way
+and the digest check the fixture is about still fails; a longer list of reasons is
+not a weaker refusal.
+
+### The generator anomaly: unreproduced, recipe recorded, not gating
+
+While the pushed commit was being validated in a fresh clone, one batch ran a
+clone's test suite and the deletion of that clone at the same time and printed
+`# tests 0` beside a module-not-found crash. Run with the clone alive and the
+commands in order, the same suite reported 83 of 83 on the pinned floor, and it has
+not reproduced since — including the 111 tests and the 54-case kit replay run
+sequentially for this change. The recipe is recorded so that a reader can tell it
+apart from a real failure of the suite: if `# tests 0` appears next to a missing
+module, find out what else the shell was doing before believing it. Nothing is
+gated on it, and nothing in the project was changed for it.
+
 ## Unreleased — charter/0.1, verifier hardening
 
 ### Exit codes: five, not three

@@ -14,6 +14,10 @@
   "scripts": {
     "test": "node --test",
     "verify": "node cli/charter.js verify",
+    "seal": "node cli/charter.js seal",
+    "inspect": "node cli/charter.js inspect",
+    "cite": "node cli/charter.js cite",
+    "keygen": "node cli/charter.js keygen",
     "kit": "node vectors/run.js",
     "kit:build": "node vectors/build.js"
   },

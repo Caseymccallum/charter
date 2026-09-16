@@ -543,6 +543,25 @@ consume. The human form prints the verdict, the failing and unsupported checks
 with their reason codes and prose, the caveats of section 11, and a count of the
 checks that were not reached.
 
+The commands that write and describe files are the producer's:
+
+```
+node cli/charter.js keygen -o key.pem                  # an Ed25519 key, PKCS#8 PEM
+node cli/charter.js seal <content.md> --key <key.pem> -o <out.charter>
+node cli/charter.js inspect <file.charter>             # what a file claims
+node cli/charter.js cite <file.charter>                # one CSL-JSON item
+```
+
+Exit codes are five for `verify`, and they are the codes of a verdict: `0`
+VERIFIED, `1` INCOMPLETE, `2` BROKEN, `64` the command line was not understood,
+`66` the named file could not be read. The producer adds two, and neither is a
+verdict: `65` the input was refused and the refusal has a reason code from the
+vocabulary in `verifier/status.js`, and `73` the output file could not be
+created. `seal`, `inspect`, `cite` and `keygen` also use `64` and `66`, and
+`inspect` and `cite` exit `65` when a file holds nothing they can read. Section
+14 changes a version when a *verdict* changes; these two codes belong to
+commands that do not produce one.
+
 The verifier needs **Node 20.12 or later**. Two runtime facilities decide that
 floor and no third one does: WebCrypto Ed25519, which is how a signature is
 checked without a cryptography dependency, and `DecompressionStream` with the
@@ -674,3 +693,106 @@ That is the only behaviour that lets two strangers agree about what a verdict
 means when they are running different software: the format identifier is a
 promise about which rules were applied, and a reader who ignores it is guessing
 on the author's behalf.
+
+## 15. The producer
+
+Everything above describes the *reader*: what a file is, what a verdict says,
+and which check decides which claim. This section describes the writer that
+comes with this implementation, and it exists to say one thing clearly: **the
+producer is not part of the format.**
+
+A `.charter` file is what sections 2 through 9 describe, and any program that
+writes one is a producer. `producer/**` is this project's, and it is a reference
+implementation: when a rule above and the producer disagree, the rule wins and
+the producer is the bug. A second producer may compress its entries, write a
+history of many entries, or record a different title, and none of that needs a
+version change — the reader accepts anything it can check, and that is the whole
+set of things this document describes.
+
+Where the producer and the verifier must agree, they share code rather than
+review: `canonicalDocument()` and `signingInput()` from
+`verifier/canonical-write.js` for the bytes a signature covers, `deriveKeyId()`
+from `verifier/manifest.js` for a key id, the timestamp rule in
+`verifier/schema.js`, the CRC-32 in `verifier/crc32.js`, and the entry names and
+actions in `verifier/verify.js` and `verifier/provenance.js`. Two derivations of
+one name, or two writers of one byte sequence, would agree until they did not,
+and the disagreement would be about the identity of a signer.
+
+### 15.1 What `seal` writes
+
+`seal` writes a new artifact: `format` is this version's identifier, `title` is
+a claimed title (see 15.3), `created_at` is the time the author states, and
+`content.md` is the document's bytes. It writes **one** provenance entry, with
+`action` `create`, `parent` `null`, and `content_sha256` equal to the digest of
+the content — which is what makes `L2.CHAIN.HEAD_MATCHES_CONTENT` hold for a
+file that was never edited. Writing the later entries of a history is a verb
+this producer does not have, and a reader is not affected by that: the format
+accepts any log section 9 accepts.
+
+An entry is stored, never deflated. Section 3.3 allows either, and a producer
+that deflated would have artifact bytes that depend on the compressing library:
+zlib's output changes between versions, so "the same document and the same key
+produce the same bytes" would be true only within one runtime. Section 3.6
+removed the clock from the container for the same reason, and a compressor is a
+second clock.
+
+### 15.2 A seal is deterministic
+
+Sealing the same content with the same key and the same stated metadata produces
+the same bytes, on every run and on every machine. The producer reads no clock,
+no file, and no random source: it is a function from arguments to a byte
+sequence, and the command line is what reads files and (with `--now`) the clock.
+
+The time is an argument. Without one, the manifest's `created_at` and the
+entry's `timestamp` are `1980-01-01T00:00:00Z` — the instant the container's
+fixed DOS stamp means, so a file that states no time says so consistently in
+both places. A producer that stamped the clock by default would make the same
+document into a different file on every run, which is the outcome section 3.6
+exists to prevent.
+
+### 15.3 Where a title comes from
+
+A title is needed twice — `manifest.title` is required, and a citation wants one
+— and a `.charter` file offers three different statements, which are not
+interchangeable:
+
+| Where the title was read | What it is |
+| --- | --- |
+| stated by the person sealing or citing | an assertion by whoever ran the command |
+| a `<title>` element, or the first ATX heading, inside `content.md` | the document's own text, covered by the digest the manifest declares |
+| `manifest.title` | the artifact's claim about itself, signed but outside the content digest |
+
+`seal` records the stated title if there is one, otherwise one derived from the
+content, otherwise the name of the content file — which is not in the document at
+all. `cite` reports which of the three it used, in
+`custom.charter.title_source` (`asserted`, `derived` or `claimed`) and
+`title_origin`, and says it in the note as well, so a reader can tell a claim the
+caller made from a claim read out of the bytes the identifier names. The
+derivation is deliberately shallow: it locates an element or a line, interprets
+no Markdown, decodes no entities, and only collapses runs of whitespace, because
+this format does not parse the documents it carries.
+
+### 15.4 A citation
+
+`cite` produces one CSL-JSON item. Its `id` is the claim hash — the SHA-256 of
+the document the last entry was signed over, which is the value the manifest
+declares and the chain's head confirms — so two files that make the same claim
+about the same bytes cite as the same document, and the file each came from is
+named in `custom.charter.artifact_sha256`. `issued` is the time the file states,
+which is the author's claim; `accessed` is the day the citation was made, the
+one date that comes from outside the file. A citation records what a file says.
+Whether it holds up is a verdict, and this command does not produce one.
+
+### 15.5 What the producer refuses
+
+`seal` refuses what it cannot write, and every refusal carries a reason code from
+the vocabulary in section 10 — the same names a verdict prints: content that is
+not valid UTF-8 (`DECODE_ERROR`) or that begins with a byte order mark
+(`NON_CANONICAL`), a key that is not Ed25519 (`UNSUPPORTED_FEATURE`), a key file
+that holds no key (`MALFORMED`), a named file that is absent (`MISSING`), an
+output path that is already taken (`EXTRA`), a value above a limit of section 3.7
+(`LIMIT_EXCEEDED`), and a stated time that is not the form section 5 fixes
+(`MALFORMED`). A producer with a private set of failure names would be a second
+vocabulary for one format, and a caller who had to learn both would eventually
+confuse them.
+

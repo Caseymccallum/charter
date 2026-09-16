@@ -6,12 +6,21 @@ form a stranger can check without trusting the author, a server, or a clock.
 
 This repository is the **verifier first**. It contains a pure verifier, a
 conformance kit, a command line, and the tests that hold all three together.
-There is no producer, editor, or app yet, and that order is deliberate: a
-producer is easy to write once a verifier refuses forged files correctly, and
-worthless before.
+That order was deliberate — a producer is easy to write once a verifier refuses
+forged files correctly, and worthless before — and it is now the history of the
+project rather than its state: `producer/**` seals documents, and it exists
+because the verifier does.
 
-The format is specified in [SPEC.md](SPEC.md). The verifier is `verifier/**`;
-everything else exists to feed it bytes or to check it.
+The asymmetry is the point. The verifier may not read a file, a clock, or a
+random source, and may import nothing outside `verifier/**`; the producer may
+load a key and is the reference implementation of everything the verifier
+refuses when it is wrong. Where the two must not be allowed to disagree, they
+share code: the producer writes the canonical bytes with the verifier's own
+serializer and derives a key id with the verifier's own derivation.
+
+The format is specified in [SPEC.md](SPEC.md). The verifier is `verifier/**`,
+the producer is `producer/**`, and everything else exists to feed the verifier
+bytes or to check it.
 
 ## Verify a file
 
@@ -26,6 +35,64 @@ established), `2` BROKEN (something failed), `64` the command line was not
 understood, `66` the file could not be read. Only `0` is a pass, and only `0`
 means every requirement was actually established.
 
+## Seal a document
+
+```
+charter keygen -o key.pem                           # an Ed25519 key, PKCS#8 PEM
+charter seal notes.md --key key.pem -o notes.charter
+charter verify notes.charter                        # VERIFIED, exit 0, or what failed
+charter inspect notes.charter                       # what the file claims, and no verdict
+charter cite notes.charter --accessed 2026-09-16    # CSL-JSON, for a reference manager
+```
+
+`seal` takes the document, the key, and where to write the artifact, and it also
+takes `--title` (the title to record), `--author` (the signer's name),
+`--created-at` (the time to record, `YYYY-MM-DDTHH:MM:SSZ`), `--now` (record the
+current time), `--summary` (the first entry's summary), `--force` (overwrite an
+existing output) and `--json`.
+
+Two decisions about that command line are worth knowing before you use it:
+
+- **A seal is deterministic.** The same content, key and arguments produce the
+  same bytes on every run and on every machine, because nothing in the producer
+  reads a clock, a file or a random source. `--now` is the one flag that reads a
+  clock, and without it or `--created-at` the file states no time at all:
+  `1980-01-01T00:00:00Z`, the same instant the container's fixed DOS stamp means.
+  A record that says "no time stated" is honest; a record stamped with a time
+  nobody chose is not.
+- **The producer does not grade its own homework.** `seal` does not verify what
+  it just wrote. The agreement between the two halves is asserted where it is
+  evidence — in `test/producer.test.js`, which seals and then asks the verifier,
+  through this same command line.
+
+If you would rather make the key with your own tools,
+`openssl genpkey -algorithm ed25519 -out key.pem` produces exactly the PKCS#8 PEM
+that `--key` reads. `charter keygen` is here because that command assumes
+`openssl` is installed, and it often is not.
+
+`seal` refuses what it cannot write, and every refusal prints a reason code from
+the same vocabulary a verdict prints: content that is not valid UTF-8
+(`DECODE_ERROR`) or that begins with a byte order mark (`NON_CANONICAL`), a key
+that is not Ed25519 (`UNSUPPORTED_FEATURE`), a key file that holds no key
+(`MALFORMED`), a named file that is not there (`MISSING`, exit 66), an output
+path that is already taken (`EXTRA`, exit 73), and a stated time that is not the
+form the format fixes (`MALFORMED`, exit 65). The producer's exit codes are `0`
+it did what it said, `64` the command line was not understood, `65` the input was
+refused and has a reason code, `66` a named file could not be read, and `73` the
+output file could not be created. They are not verdicts, and `verify`'s five
+codes are unchanged.
+
+`inspect` prints what a file claims — format, title, author, key id, declared
+time, content digest, entry count — and says whether the declared format is one
+this build implements. It never prints a verdict word: it answers "what is this
+file?", and `verify` answers "is it true?". `cite` prints one CSL-JSON item and
+nothing else. Its identifier is the claim hash, the SHA-256 of the document the
+last entry was signed over, and the item records where its title came from:
+`asserted` when `--title` was passed, `derived` when it was read out of the
+captured document (a `<title>` element, or the first Markdown heading), and
+`claimed` when it fell back to the manifest's own title. Times stated in the file
+are the author's claims, and the citation says so.
+
 No installation, no build step, no dependencies. **Node 20.12 or later**, and
 nothing outside the standard library. The floor is where the two runtime
 facilities the verifier needs both exist: WebCrypto Ed25519 (Node 20.0) and
@@ -37,7 +104,7 @@ every check it cannot perform, which is a verdict of `INCOMPLETE`, never a pass.
 
 ```
 node vectors/run.js     # replay 54 artifacts against 54 recorded answers
-npm test                # the 83 tests, through node --test
+npm test                # the 111 tests, through node --test
 ```
 
 `vectors/run.js` is written for a reader, not for the author: it reads
@@ -93,13 +160,13 @@ can decide from the artifact alone, and they are printed rather than guessed at.
 
 | Absent | Why |
 | --- | --- |
-| A producer or editor | the verifier has to refuse forged files before one is worth writing |
+| An editor, a server, a sync engine | the format is the product; a producer that writes one file is enough to seal one |
+| A store of keys, or a lookup for one | `keygen` writes one file and keeps nothing: a key belongs to whoever holds it |
 | Network access, in the verifier or the CLI | a verdict that depends on a server is not checkable offline |
-| Key generation, storage, or lookup | keys belong to the user's own tools, not to this repository |
 | Encryption | ZIP is not a confidentiality mechanism; a charter's size is visible and the format does not pretend otherwise |
 | Revocation, transparency logs, timestamp authorities | these belong above the format; a charter is a self-contained file |
-| Markdown parsing or normalization | the bytes of `content.md` are the content; the verifier never rewrites them |
-| Any dependency, including a JSON parser | the canonical JSON rules this format needs (no duplicate keys, integers only, no unpaired surrogates) are stricter than `JSON.parse` |
+| Markdown parsing or normalization | the bytes of `content.md` are the content; the verifier never rewrites them, and the one thing read out of them is a title, reported as derived |
+| Any dependency, including a JSON parser | the canonical JSON rules this format needs (no duplicate keys, integers only, no unpaired surrogates) are stricter than `JSON.parse`, and the producer writes through the verifier's own serializer rather than a second one |
 | Guessing at anything | an unimplemented feature is UNSUPPORTED and an unrun check is SKIP, and neither is ever a pass |
 
 ## Repository layout
@@ -108,17 +175,19 @@ can decide from the artifact alone, and they are printed rather than guessed at.
 | --- | --- |
 | `SPEC.md` | the format, and why each rule exists |
 | `verifier/` | the pure verifier: bytes in, verdict out. No clock, no disk, no network, no `node:` imports |
-| `cli/charter.js` | the only file in the project that reads a file, and the only place a verdict becomes text |
+| `producer/` | the reference implementation: writes the format, reads a file's claims, cites one. No clock, no disk, one `node:` import (`node:crypto`, for keys) |
+| `cli/charter.js` | the only file in the project that reads or writes a file, and the only place a verdict or a refusal becomes text |
 | `vectors/` | the conformance kit: an independent builder, 54 artifacts, the recorded answers, and the replay |
-| `test/` | 83 tests, including `purity.test.js` (the verifier stays pure, and the serializer shares no code with the parser), `parser.fuzz.test.js` (no input throws), `canonical.roundtrip.test.js` (every committed artifact is a fixed point of the reader and the serializer, both directions), and `adversarial.test.js` (the table in `adversarial.md` is a claim the tests check). `test/corpus.js` is not a test file: it is the hostile-text corpus both fuzz suites are stated over, so `node --test` lists it and finds nothing in it. |
+| `test/` | 111 tests, including `purity.test.js` (the verifier stays pure, and the serializer shares no code with the parser), `parser.fuzz.test.js` (no input throws), `canonical.roundtrip.test.js` (every committed artifact is a fixed point of the reader and the serializer, both directions), `adversarial.test.js` (the table in `adversarial.md` is a claim the tests check), and `producer.test.js` (seal, then verify, then every way a sealed file can be made to lie). `test/corpus.js` is not a test file: it is the hostile-text corpus both fuzz suites are stated over, so `node --test` lists it and finds nothing in it. |
 | `NAMING.md` | what the words in this project mean, and which ones are avoided |
 
 ## Development
 
 ```
-npm test          # node --test: discovers test/*.test.js and runs all 83
+npm test          # node --test: discovers test/*.test.js and runs all 111
 npm run kit       # replay the conformance kit
 npm run kit:build # rebuild the kit's artifacts (the author's program)
+npm run seal      # the producer's verbs: seal, inspect, cite, keygen
 ```
 
 `vectors/build.js` shares no code with `verifier/**`. It writes the canonical
@@ -127,6 +196,16 @@ signing from `node:crypto`. If two independently written implementations agree
 that a byte sequence is the canonical form of a value, that agreement is
 evidence about the format; two copies of one bug would be evidence about
 nothing.
+
+`producer/**` is the opposite arrangement, on purpose. It is not a second
+opinion about the format: it is the writing half of it, so wherever the two
+halves could disagree it calls the verifier's own code — `canonicalDocument` and
+`signingInput` for the bytes a signature covers, `deriveKeyId` for the name of a
+key, the reader's timestamp rule, the reader's CRC-32, the reader's entry names
+and actions. The producer has no private writer, no private reason codes, and no
+private vocabulary for anything the format defines, and `test/producer.test.js`
+asserts that the whole directory reads nothing but a key from outside a byte
+array.
 
 `.gitattributes` marks every artifact as not-text, so no checkout can rewrite a
 line ending inside one: the kit's answers are recorded against a digest of each
