@@ -87,10 +87,10 @@ One thing it needs that the brief did not expect: **a page that imports
 origin requests are only supported for protocol schemes: chrome,
 chrome-extension, chrome-untrusted, data, http, https, isolated-app" — and so does
 every other browser that implements modules. The fix is not a bundler and not a
-copy of the verifier inside the page: `editor/serve.mjs` is a sixty-line courier
-that serves this repository on loopback, the page says so in the browser's own
-words when it is opened from `file://`, and `python -m http.server` works just as
-well. No module was added to the format's implementation for it.
+copy of the verifier inside the page: `editor/serve.mjs` is a courier that serves
+this repository on loopback and nothing else, the page says so in the browser's
+own words when it is opened from `file://`, and `python -m http.server` works just
+as well. No module was added to the format's implementation for it.
 
 ### The README's list of deliberate absences lost one line
 
