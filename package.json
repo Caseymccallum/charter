@@ -9,7 +9,7 @@
     "charter": "./cli/charter.js"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=20.12.0"
   },
   "scripts": {
     "test": "node --test",

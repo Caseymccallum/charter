@@ -26,8 +26,12 @@ established), `2` BROKEN (something failed), `64` the command line was not
 understood, `66` the file could not be read. Only `0` is a pass, and only `0`
 means every requirement was actually established.
 
-No installation, no build step, no dependencies. Node 20 or later, and nothing
-outside the standard library.
+No installation, no build step, no dependencies. **Node 20.12 or later**, and
+nothing outside the standard library. The floor is where the two runtime
+facilities the verifier needs both exist: WebCrypto Ed25519 (Node 20.0) and
+`DecompressionStream('deflate-raw')` (Node 20.12). On an older runtime the
+verifier does not throw and does not guess: it reports `UNSUPPORTED_FEATURE` for
+every check it cannot perform, which is a verdict of `INCOMPLETE`, never a pass.
 
 ## Try it on the kit
 

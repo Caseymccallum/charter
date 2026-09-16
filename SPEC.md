@@ -483,6 +483,15 @@ consume. The human form prints the verdict, the failing and unsupported checks
 with their reason codes and prose, the caveats of section 11, and a count of the
 checks that were not reached.
 
+The verifier needs **Node 20.12 or later**. Two runtime facilities decide that
+floor and no third one does: WebCrypto Ed25519, which is how a signature is
+checked without a cryptography dependency, and `DecompressionStream` with the
+`deflate-raw` format, which is how a deflated entry is expanded without a copy of
+zlib. `deflate-raw` appears in Node 20.12; `globalThis.crypto` appears in Node
+20.0. On an older runtime nothing here throws: every check that cannot be
+performed is reported `UNSUPPORTED` with reason `UNSUPPORTED_FEATURE`, which is
+`INCOMPLETE`, and `INCOMPLETE` is not a pass.
+
 Run the tests:
 
 ```
