@@ -11,7 +11,7 @@
 
 import { toHex } from './bytes.js';
 import { sha256 } from './digest.js';
-import { signingInput } from './canonical.js';
+import { signingInput } from './canonical-write.js';
 import { describeType, findUnknownField, readField } from './schema.js';
 import { REASON } from './status.js';
 

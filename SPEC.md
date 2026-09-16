@@ -169,8 +169,16 @@ checked.
 ## 4. Canonical JSON
 
 All three entries are JSON, and all three are signed, so all three have to have
-exactly one byte sequence per value. `verifier/canonical.js` is that one byte
-sequence, and it is a subset of RFC 8785 (the JSON Canonicalization Scheme) with
+exactly one byte sequence per value. Two modules hold that rule, one per
+direction: `verifier/canonical.js` reads bytes into a value or refuses them, and
+`verifier/canonical-write.js` takes a value and writes the one byte sequence for
+it. They share this section and the reason vocabulary in `verifier/status.js`,
+and they share no code — nothing in the writing direction imports the reading
+direction, and the reading direction does not call it. A round trip between two
+implementations written apart is evidence about the format; a round trip through
+one implementation is evidence about that implementation.
+
+Canonical form is a subset of RFC 8785 (the JSON Canonicalization Scheme) with
 three deliberate differences:
 
 1. **Integers only.** An integer is written `0`, or `-?[1-9][0-9]*`, and must
@@ -191,9 +199,13 @@ The rest of the rules:
   hexadecimal digits for the remaining control characters below U+0020, and
   literally everything else. So `/` is `/`, `é` is `é`, and `\u00e9` for `é` or
   `\/` for `/` is well-formed JSON that is rejected as non-canonical.
-- An unpaired surrogate escape is refused: `\ud800` alone, and `\udc00` alone,
-  are both MALFORMED. A verifier that accepted them would produce a string that
-  cannot survive the trip back out through UTF-8.
+- An unpaired surrogate is refused, spelled either way: the escape `\ud800`
+  alone and the escape `\udc00` alone are MALFORMED, and so is either of them
+  written as a literal character in the text. A verifier that accepted one would
+  produce a string with no canonical bytes — UTF-8 cannot encode half a
+  character, so the trip back out through a `TextEncoder` would deliver U+FFFD
+  and a different string than the one that was signed. A correctly paired
+  surrogate is an ordinary character, escaped or literal, and is kept.
 - No duplicate keys. A reader that keeps the last one and a reader that keeps
   the first disagree about what was signed, so the object is refused with
   reason DUPLICATE.
@@ -215,8 +227,36 @@ be moved to another place in a document where it happens to be a prefix of the
 canonical text, and both placements would verify.
 
 This is why the canonical-byte rule and the signed-byte rule are two functions
-in `verifier/canonical.js`: `canonicalBytes` produces the bytes that a file must
-contain, and `signingInput` produces the bytes a signature is computed over.
+in `verifier/canonical-write.js`: `canonicalBytes` produces the bytes that a file
+must contain, and `signingInput` produces the bytes a signature is computed
+over. `canonicalDocument` is the first of those with the terminator appended, so
+that "one value and one LF" is written once rather than at every call site.
+
+### 4.2 The same values, both ways
+
+The set of values the serializer accepts is exactly the set of values the reader
+can produce. Neither direction can form a document the other cannot handle: a
+value that cannot be written is refused by name, with the reason code a verdict
+would print for the same defect, and with the path to the offending value
+(`.content.sha256`, `[3].timestamp`).
+
+| A producer's value | Reason code | Why it is refused rather than written |
+| --- | --- | --- |
+| a number that is not an integer, including `-0` and `NaN` | NON_INTEGER_NUMBER | `String(-0)` is `"0"`: writing it would sign a value that says zero. The reader refuses `1.0`, `1e0` and `-0` alike, and a value carries no spelling, so the writer splits the two codes by *value*: not an integer, or an integer too large. |
+| an integer outside ±(2^53 − 1) | NUMBER_OUT_OF_RANGE | `String` would write a different number than the one passed in. |
+| a string or a key holding an unpaired surrogate | MALFORMED | UTF-8 has no encoding for half a character: the bytes would carry U+FFFD. |
+| an array with a hole, or with an own property that is not an index | MALFORMED | `[1,,2]` is not JSON, and `join` would write exactly that. |
+| anything that is not a JSON value: `undefined`, a function, a symbol, a bigint, a `Date`, a `Map`, a class instance, a typed array | MALFORMED | `Object.keys(new Date())` is `[]`, so an object walker writes `{}` for a date without a word. `JSON.stringify` writes a timestamp instead. Neither is a document this format defines. |
+| a value nested deeper than 64 | MALFORMED | The reader's ceiling for the same condition. A writer without one does not refuse a deep value, it throws a `RangeError` — and a value that contains itself is caught by the same ceiling one level later, rather than recursing until the stack ends. |
+
+**A canonical document is a fixed point.** Reading a document's bytes to a value
+and writing that value back produces the same bytes, byte for byte. This is the
+property the format's reimplementability rests on: the bytes of a
+`manifest.json` or a `provenance.jsonl` line may be checked against any
+implementation's writer, and a difference is a difference about the format
+rather than about whose code ran. `test/canonical.roundtrip.test.js` states it in
+both directions, over the committed artifacts, over the parser's fuzz corpus, and
+over generated values.
 
 ## 5. `manifest.json`
 

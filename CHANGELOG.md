@@ -147,3 +147,63 @@ printed by `cli/charter.js` for a person reading the human report. The same file
 asserts that a rewritten log and a freshly written one are identical check for
 check, which is the gap stated as sharply as it can be.
 
+
+### The serializer, and four values it wrote silently
+
+The canonical rule had one implementation in two directions, which is no way to
+test either. `verifier/canonical-write.js` is now the writing direction on its
+own: a value in, the one byte sequence out, sharing this project's specification
+and reason vocabulary with `verifier/canonical.js` and no code at all with it.
+`test/purity.test.js` asserts the boundary rather than describing it — the
+serializer may not import the reader, neither module may name the other's
+functions, and each module's exports are exactly its half of the rule.
+
+The writing direction had never been held to the rule it implements, and four
+values it wrote were values the reader cannot read back:
+
+| Value passed to the serializer | What it used to write | What it does now |
+| --- | --- | --- |
+| `new Date()`, a `Map`, a class instance | `{}` — `Object.keys` of a date is `[]` | refused, MALFORMED |
+| `-0` | `0` — `String(-0)` loses the sign | refused, NON_INTEGER_NUMBER |
+| an array hole, or an array with an extra own property | `[1,,2]`, which is not JSON | refused, MALFORMED |
+| a string holding an unpaired surrogate | bytes that decode to U+FFFD, in the *other* string | refused, MALFORMED |
+
+A fifth was the depth ceiling the serializer did not have: a value nested past
+64 levels did not produce a deep document, it produced a `RangeError`. It is now
+refused with MALFORMED, the reader's code for the same condition, and a value
+that contains itself is caught by the same ceiling one level later.
+
+### One value, two spellings, one reason code
+
+The reader tells NON_INTEGER_NUMBER from NUMBER_OUT_OF_RANGE by the *text* it was
+handed: `1e0` is refused as a spelling, `9007199254740993` as a range. A value
+carries no spelling, so the serializer splits the two codes by *value* instead:
+not an integer (including `-0`, `NaN`, `Infinity`), or an integer too large to
+write down exactly. `test/canonical.roundtrip.test.js` holds the two directions
+to the same code for the same defect, which is the whole point of the pair.
+
+### An unpaired surrogate, spelled either way
+
+The round trip found this one, and neither the fuzz corpus nor the adversarial
+table had: the reader refused an unpaired surrogate *escape* (`"\ud800"`) but
+accepted the same character written *literally*, because the check lived in the
+escape branch of the string scanner. The specification had always said such a
+string is not representable — it has no canonical bytes, since UTF-8 cannot
+encode half a character — so this was the reader being narrower than its own
+rule rather than the rule being wrong. A literal unpaired surrogate is now
+MALFORMED like the escape, and the two directions accept exactly the same
+strings. No artifact could have contained one: a lone surrogate cannot appear in
+valid UTF-8, and bytes that tried would be refused as invalid UTF-8 before the
+parser saw them.
+
+### Canonical form is not integrity
+
+`test/canonical.roundtrip.test.js` states, with the bytes, that a hand edit
+inside a string leaves a document canonical: change one character of the title,
+and `manifest.json` is still exactly what the serializer writes for its (forged)
+value, so `L0.MANIFEST.CANONICAL` still passes. What catches the edit is the
+container's own CRC-32 and, after it, the signature over the manifest. This was
+already true and is now recorded, because the opposite is easy to assume: the
+canonical check answers "is this the one byte sequence for its value", never "is
+this the value the author wrote".
+

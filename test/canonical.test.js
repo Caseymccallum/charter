@@ -4,22 +4,19 @@
  * These tests are written against the rules in SPEC.md, not against the
  * implementation: every case here is a byte sequence a reader could be handed,
  * and the answer is what the format says a reader must do with it.
+ *
+ * The writing direction has its own file, `test/canonical-write.test.js`, and
+ * the two directions have a property test between them,
+ * `test/canonical.roundtrip.test.js`. Nothing in this file imports the writer:
+ * a reader tested through its own writer would agree with itself about a rule it
+ * had misread.
  */
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import {
-  LF,
-  canonicalBytes,
-  compareByCodePoint,
-  parseJsonText,
-  quoteString,
-  serializeCanonical,
-  signingInput,
-} from '../verifier/canonical.js';
+import { parseJsonText } from '../verifier/canonical.js';
 import { REASON } from '../verifier/status.js';
-import { toHex, utf8Encode } from '../verifier/bytes.js';
 
 const REASONS = new Set(Object.values(REASON));
 
@@ -74,48 +71,18 @@ test('depth is limited', () => {
   assert.deepEqual(parseJsonText('[[1]]', 2), { ok: true, value: [[1]] });
 });
 
-test('whitespace between tokens is tolerated; only the canonical bytes are canonical', () => {
+test('whitespace between tokens is tolerated, because only the bytes are canonical', () => {
+  // Tolerance is deliberate: a document that is well-formed JSON in another
+  // spelling has to be *readable* so that it can be refused as NON_CANONICAL by
+  // the check that compares bytes. A parser that only accepted the canonical
+  // spelling could not tell "this is the wrong bytes" from "this is not JSON",
+  // and only one of those is a verdict a stranger can act on.
   assert.deepEqual(parseJsonText('  [1,2]  '), { ok: true, value: [1, 2] });
-  // Well-formed JSON in another spelling parses, and the bytes are what decides
-  // (L0.MANIFEST.CANONICAL / L0.PROVENANCE.CANONICAL), which is the difference
-  // between a refusal a stranger can act on and a bare syntax error.
-  const spaced = parseJsonText('{ "a" : 1 , "b" : [ 1 , 2 ] }');
-  assert.equal(spaced.ok, true);
-  assert.equal(serializeCanonical(spaced.value), '{"a":1,"b":[1,2]}');
-});
-
-test('keys are ordered by code point, not by UTF-16 code unit', () => {
-  assert.equal(serializeCanonical({ b: 1, a: [1, 2] }), '{"a":[1,2],"b":1}');
-  assert.equal(serializeCanonical({ '\u{10000}': 1, '\uE000': 2 }), '{"\uE000":2,"\u{10000}":1}');
-  assert.equal(compareByCodePoint('\u{10000}', '\uE000'), 1);
-  assert.equal(compareByCodePoint('a', 'ab'), -1);
-  assert.equal(compareByCodePoint('a', 'a'), 0);
-});
-
-test('a string is escaped only where JSON requires it', () => {
-  assert.equal(quoteString('a/b\u00e9\u0007"\\\n'), '"a/b\u00e9\\u0007\\"\\\\\\n"');
-  assert.equal(quoteString(''), '""');
-});
-
-test('canonical text holds no value outside the format', () => {
-  assert.throws(() => serializeCanonical(1.5), TypeError);
-  assert.throws(() => serializeCanonical(undefined), TypeError);
-  assert.throws(() => serializeCanonical(() => 1), TypeError);
-  assert.throws(() => serializeCanonical(Symbol('x')), TypeError);
-});
-
-test('canonical bytes are the UTF-8 bytes of the canonical text, with no newline', () => {
-  assert.equal(toHex(canonicalBytes({ b: 1, a: [1, 2] })), toHex(utf8Encode('{"a":[1,2],"b":1}')));
-});
-
-test('the signing input is the canonical form without the signature field, plus one LF', () => {
-  assert.equal(toHex(signingInput({ b: 1, signature: 'x' }, 'signature')), '7b2262223a317d0a');
-  assert.deepEqual(LF, new Uint8Array([0x0a]));
-  assert.equal(toHex(LF), '0a');
-});
-
-test('the trailing LF is part of the signing input', () => {
-  const without = toHex(canonicalBytes({ b: 1 }));
-  const signed = toHex(signingInput({ b: 1 }, 'signature'));
-  assert.equal(signed, `${without}0a`);
+  // Objects come back with a null prototype on purpose (so that a key called
+  // `__proto__` is an ordinary key), so the comparison goes through a plain copy
+  // rather than by identity of prototype.
+  assert.deepEqual(JSON.parse(JSON.stringify(parseJsonText('\n\t{"a":1}\r\n').value)), { a: 1 });
+  assert.equal(parseJsonText('{ "a" : 1 , "b" : [ 1 , 2 ] }').ok, true);
+  // Whitespace inside a string is content, and the reader keeps it.
+  assert.equal(parseJsonText('{"a":" b\\tc\\n"}').value.a, ' b\tc\n');
 });

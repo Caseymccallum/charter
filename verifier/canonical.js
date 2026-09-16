@@ -43,15 +43,19 @@
  * by UTF-16 code unit), and a file is one canonical value followed by exactly
  * one LF. See SPEC.md section 4.
  *
+ * This module is the reading direction only. `verifier/canonical-write.js` is
+ * the other one: a value in, the one byte sequence out. They share the
+ * specification and the reason vocabulary and they share no code — nothing here
+ * imports the writer, and the writer does not call the reader. Two directions
+ * that were written apart is what makes a round trip between them evidence about
+ * the format rather than a restatement of one implementation's habits.
+ *
  * @module verifier/canonical
  */
 
-import { concat, utf8Decode, utf8Encode } from './bytes.js';
+import { utf8Decode } from './bytes.js';
 import { LIMITS } from './limits.js';
 import { REASON } from './status.js';
-
-/** The one byte that ends a canonical document. */
-export const LF = new Uint8Array([0x0a]);
 
 const INTEGER_LITERAL = /^(?:0|-?[1-9][0-9]*)$/;
 const FOUR_HEX = /^[0-9a-fA-F]{4}$/;
@@ -194,6 +198,25 @@ class Cursor {
       }
       if (code < 0x20) {
         this.fail(REASON.MALFORMED, `an unescaped control character (U+${code.toString(16).padStart(4, '0')}) appears inside a string`);
+        return undefined;
+      }
+      // A lone surrogate is refused whichever way it was spelled. The escape form
+      // is caught above, and this is the literal form: half a character, which
+      // UTF-8 has no encoding for, so a value holding one has no canonical bytes
+      // and no signature over it could be reproduced. A *pair* of raw units is an
+      // ordinary character (that is what every astral character is), and is kept.
+      if (code >= 0xd800 && code <= 0xdbff) {
+        const low = this.text.charCodeAt(this.at + 1);
+        if (!(low >= 0xdc00 && low <= 0xdfff)) {
+          this.fail(REASON.MALFORMED, `a high surrogate (U+${code.toString(16).padStart(4, '0')}) inside a string is not followed by a low surrogate, and a string UTF-8 cannot encode has no canonical form`);
+          return undefined;
+        }
+        out += this.text[this.at] + this.text[this.at + 1];
+        this.at += 2;
+        continue;
+      }
+      if (code >= 0xdc00 && code <= 0xdfff) {
+        this.fail(REASON.MALFORMED, `a low surrogate (U+${code.toString(16).padStart(4, '0')}) inside a string has no preceding high surrogate, and a string UTF-8 cannot encode has no canonical form`);
         return undefined;
       }
       out += this.text[this.at];
@@ -344,122 +367,4 @@ export function parseJsonBytes(bytes, options = {}) {
     return { ok: false, reason_code: REASON.DECODE_ERROR, detail: 'the bytes are not valid UTF-8' };
   }
   return parseJsonText(decoded.text, options.maxDepth ?? limits.MAX_JSON_DEPTH);
-}
-
-/** Escapes that have a short form. Every other character is written literally, or as `\uXXXX` if it is a control character. */
-const SHORT_ESCAPES = new Map([
-  [0x08, '\\b'],
-  [0x09, '\\t'],
-  [0x0a, '\\n'],
-  [0x0c, '\\f'],
-  [0x0d, '\\r'],
-  [0x22, '\\"'],
-  [0x5c, '\\\\'],
-]);
-
-/**
- * Quote a string the one way this format allows.
- *
- * Escapes only where JSON requires one, plus the two characters that must be
- * escaped anywhere: `"` and `\`. Everything else above U+001F is literal, so
- * `/` is `/` and `é` is `é`. Other encodings of the same string (`\u00e9` for
- * `é`, `\/` for `/`) are well-formed JSON and are rejected as non-canonical.
- *
- * @param {string} text
- * @returns {string}
- */
-export function quoteString(text) {
-  let out = '"';
-  for (let i = 0; i < text.length; i += 1) {
-    const code = text.charCodeAt(i);
-    const short = SHORT_ESCAPES.get(code);
-    if (short !== undefined) {
-      out += short;
-    } else if (code < 0x20) {
-      out += `\\u${code.toString(16).padStart(4, '0')}`;
-    } else {
-      out += text[i];
-    }
-  }
-  return `${out}"`;
-}
-
-/**
- * Compare two strings by Unicode code point.
- *
- * Code point order, not UTF-16 code unit order: they disagree for the range
- * above U+FFFF against U+E000..U+FFFF, and the specification says code point.
- *
- * @param {string} a
- * @param {string} b
- * @returns {number}
- */
-export function compareByCodePoint(a, b) {
-  if (a === b) return 0;
-  let i = 0;
-  for (;;) {
-    const left = a.codePointAt(i);
-    const right = b.codePointAt(i);
-    if (left === undefined) return -1;
-    if (right === undefined) return 1;
-    if (left !== right) return left < right ? -1 : 1;
-    i += left > 0xffff ? 2 : 1;
-  }
-}
-
-/**
- * Serialize a value to its canonical text.
- *
- * @param {unknown} value
- * @returns {string}
- */
-export function serializeCanonical(value) {
-  if (value === null) return 'null';
-  if (value === true) return 'true';
-  if (value === false) return 'false';
-  if (typeof value === 'number') {
-    if (!Number.isSafeInteger(value)) {
-      throw new TypeError(`canonical JSON holds integers only, got ${String(value)}`);
-    }
-    return String(value);
-  }
-  if (typeof value === 'string') return quoteString(value);
-  if (Array.isArray(value)) {
-    return `[${value.map((item) => serializeCanonical(item)).join(',')}]`;
-  }
-  if (typeof value === 'object') {
-    const keys = Object.keys(value).sort(compareByCodePoint);
-    const members = keys.map((key) => `${quoteString(key)}:${serializeCanonical(value[key])}`);
-    return `{${members.join(',')}}`;
-  }
-  throw new TypeError(`canonical JSON holds no ${typeof value} values`);
-}
-
-/**
- * The signing input of an object: canonical text without a trailing LF.
- *
- * @param {unknown} value
- * @returns {Uint8Array}
- */
-export function canonicalBytes(value) {
-  return utf8Encode(serializeCanonical(value));
-}
-
-/**
- * The bytes a signature is computed over: the canonical form of the object
- * with its signature field removed, then one LF.
- *
- * The trailing LF is what stops a signature from being moved between two
- * places in a document whose canonical texts are a suffix of one another.
- *
- * @param {Record<string, unknown>} object
- * @param {string} signatureField
- * @returns {Uint8Array}
- */
-export function signingInput(object, signatureField) {
-  const copy = Object.create(null);
-  for (const key of Object.keys(object)) {
-    if (key !== signatureField) copy[key] = object[key];
-  }
-  return concat([canonicalBytes(copy), LF]);
 }

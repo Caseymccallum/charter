@@ -37,7 +37,7 @@ every check it cannot perform, which is a verdict of `INCOMPLETE`, never a pass.
 
 ```
 node vectors/run.js     # replay 54 artifacts against 54 recorded answers
-npm test                # the 62 tests, through node --test
+npm test                # the 83 tests, through node --test
 ```
 
 `vectors/run.js` is written for a reader, not for the author: it reads
@@ -110,13 +110,13 @@ can decide from the artifact alone, and they are printed rather than guessed at.
 | `verifier/` | the pure verifier: bytes in, verdict out. No clock, no disk, no network, no `node:` imports |
 | `cli/charter.js` | the only file in the project that reads a file, and the only place a verdict becomes text |
 | `vectors/` | the conformance kit: an independent builder, 54 artifacts, the recorded answers, and the replay |
-| `test/` | 62 tests, including `purity.test.js` (the verifier stays pure), `parser.fuzz.test.js` (no input throws), and `adversarial.test.js` (the table in `adversarial.md` is a claim the tests check) |
+| `test/` | 83 tests, including `purity.test.js` (the verifier stays pure, and the serializer shares no code with the parser), `parser.fuzz.test.js` (no input throws), `canonical.roundtrip.test.js` (every committed artifact is a fixed point of the reader and the serializer, both directions), and `adversarial.test.js` (the table in `adversarial.md` is a claim the tests check). `test/corpus.js` is not a test file: it is the hostile-text corpus both fuzz suites are stated over, so `node --test` lists it and finds nothing in it. |
 | `NAMING.md` | what the words in this project mean, and which ones are avoided |
 
 ## Development
 
 ```
-npm test          # node --test: discovers test/*.test.js and runs all 62
+npm test          # node --test: discovers test/*.test.js and runs all 83
 npm run kit       # replay the conformance kit
 npm run kit:build # rebuild the kit's artifacts (the author's program)
 ```

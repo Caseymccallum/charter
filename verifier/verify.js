@@ -18,7 +18,8 @@
 
 import { bytesEqual, concat, fromHexLower, toHex, utf8Decode } from './bytes.js';
 import { CAVEATS } from './caveats.js';
-import { canonicalBytes, LF, parseJsonBytes } from './canonical.js';
+import { canonicalBytes, canonicalDocument, LF } from './canonical-write.js';
+import { parseJsonBytes } from './canonical.js';
 import { decodeBase64Url } from './base64url.js';
 import { sha256, verifySignature } from './digest.js';
 import { LIMITS } from './limits.js';
@@ -173,7 +174,7 @@ function examineManifest(reporter, state, limits) {
  */
 function reportManifestBytes(reporter, state, bytes, value) {
   const canonical = canonicalBytes(value);
-  if (bytesEqual(bytes, concat([canonical, LF]))) {
+  if (bytesEqual(bytes, canonicalDocument(value))) {
     reporter.pass('L0.MANIFEST.CANONICAL', `manifest.json is ${bytes.length} bytes: the canonical form of its value and one LF`);
   } else {
     reporter.fail('L0.MANIFEST.CANONICAL', REASON.NON_CANONICAL, `the bytes of manifest.json are not the canonical form of the object they parse to, which is ${canonical.length + 1} bytes; keys sort by code point, integers carry no leading zero, and one LF ends the file`);

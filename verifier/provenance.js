@@ -11,7 +11,8 @@
  */
 
 import { splitOnByte, utf8Decode } from './bytes.js';
-import { parseJsonText, signingInput } from './canonical.js';
+import { signingInput } from './canonical-write.js';
+import { parseJsonText } from './canonical.js';
 import { LIMITS } from './limits.js';
 import { DIGEST_BYTES } from './manifest.js';
 import { describeType, findUnknownField, readField } from './schema.js';

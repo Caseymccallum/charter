@@ -26,14 +26,9 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import {
-  LF,
-  canonicalBytes,
-  compareByCodePoint,
-  parseJsonBytes,
-  parseJsonText,
-  serializeCanonical,
-} from '../verifier/canonical.js';
+import { HOSTILE_TEXT } from './corpus.js';
+import { parseJsonBytes, parseJsonText } from '../verifier/canonical.js';
+import { canonicalBytes, compareByCodePoint, LF, serializeCanonical } from '../verifier/canonical-write.js';
 import { bytesEqual, concat, utf8Encode } from '../verifier/bytes.js';
 import { LIMITS } from '../verifier/limits.js';
 import { CHECK_IDS, EXIT_CODE, REASON, STATUS, VERDICT } from '../verifier/status.js';
@@ -246,57 +241,9 @@ test('a document above the byte ceiling is refused before it is decoded or parse
 });
 
 test('hostile text never throws out of the parser', () => {
-  /** @type {string[]} */
-  const corpus = [
-    '',
-    ' ',
-    '\n',
-    '\uFEFF{}',
-    '{}',
-    '{} {}',
-    '[]',
-    '[',
-    ']',
-    '{',
-    '}',
-    '{,}',
-    '[,]',
-    '[1,]',
-    '{"a":}',
-    '{"a"1}',
-    '{"a":1,}',
-    '{"a":1',
-    '"',
-    '"\\',
-    '"\\u',
-    '"\\uZZZZ"',
-    '"\\q"',
-    'tru',
-    'true false',
-    'null0',
-    'undefined',
-    'NaN',
-    'Infinity',
-    '0x10',
-    '1_000',
-    "'a'",
-    '{"a":1}\u0000',
-    '"\u0000"',
-    '[[]]extra',
-    '{"\\ud83d":1}',
-    '{"a":1}{"b":2}',
-    '-',
-    '-.5',
-    '1.2.3',
-    '1e',
-    '1e+',
-    '1E-',
-    `${'['.repeat(1000)}${'x'.repeat(1000)}`,
-    '\ud800',
-    '{"\ud800":1}',
-    '["\\ud800\\udc00\\ud800"]',
-  ];
-  for (const text of corpus) {
+  // The entries and what they are for live in test/corpus.js: the same corpus
+  // is what the round-trip property is stated over.
+  for (const text of HOSTILE_TEXT) {
     const outcome = attempt(text);
     assert.equal(outcome.threw, null, `${JSON.stringify(text.slice(0, 40))} threw: ${outcome.threw}`);
     assert.ok(outcome.result !== null);

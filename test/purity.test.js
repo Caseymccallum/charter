@@ -78,6 +78,53 @@ test('no verifier module reads the clock, the disk, the network, or a random sou
   }
 });
 
+/**
+ * The two directions of canonical JSON are separate modules.
+ *
+ * This is the rule that makes `test/canonical.roundtrip.test.js` evidence rather
+ * than a tautology: a reader and a writer that shared an implementation would
+ * agree with each other about a rule they had both misread, and the cheapest way
+ * to make a round trip pass is to make both directions the same function.
+ *
+ * So the boundary is asserted here rather than described: neither module may
+ * mention the other's functions, the writing direction may not import the reader
+ * at all, and each module's public surface is exactly the half of the rule it
+ * owns. A function that moves to the wrong side of the line fails this test,
+ * which is where that mistake should be caught.
+ */
+test('the serializer shares the specification with the reader and no code', () => {
+  const reader = stripComments(readFileSync(join(VERIFIER, 'canonical.js'), 'utf8'));
+  const writer = stripComments(readFileSync(join(VERIFIER, 'canonical-write.js'), 'utf8'));
+
+  const specifiers = [...writer.matchAll(/\bfrom\s+['"]([^'"]+)['"]/g)].map((match) => match[1]);
+  assert.equal(specifiers.includes('./canonical.js'), false, 'the serializer must not import the reader');
+  for (const name of ['parseJsonText', 'parseJsonBytes', 'Cursor']) {
+    assert.equal(writer.includes(name), false, `the serializer names ${name}, which is the reader's`);
+  }
+  for (const name of ['serializeCanonical', 'quoteString', 'compareByCodePoint', 'canonicalBytes', 'canonicalDocument', 'signingInput']) {
+    assert.equal(reader.includes(name), false, `the reader names ${name}, which is the serializer's`);
+  }
+
+  const exported = (text) => [...text.matchAll(/^export (?:function|const|class) (\w+)/gm)].map((match) => match[1]).sort();
+  assert.deepEqual(
+    exported(reader),
+    ['parseJsonBytes', 'parseJsonText'],
+    'the reader exports the reading direction and nothing else',
+  );
+  assert.deepEqual(
+    exported(writer),
+    ['CanonicalWriteError', 'LF', 'canonicalBytes', 'canonicalDocument', 'compareByCodePoint', 'quoteString', 'serializeCanonical', 'signingInput'],
+    'the serializer exports the writing direction and nothing else',
+  );
+
+  // The dependency runs one way. A verifier recomputing a signing input is a
+  // caller of the writing direction, not a second writer.
+  for (const name of ['verify.js', 'manifest.js', 'provenance.js']) {
+    const text = readFileSync(join(VERIFIER, name), 'utf8');
+    assert.ok(text.includes("from './canonical-write.js'"), `${name} must write through the serializer`);
+  }
+});
+
 test('the file system is touched by the command line and the kit, and nowhere else', () => {
   /** @type {string[]} */
   const users = [];
