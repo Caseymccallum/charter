@@ -4,6 +4,124 @@ Recorded because they are decisions about published behaviour, not internal
 tidying. The format identifier in `manifest.format` changes when section 14 of
 [SPEC.md](SPEC.md) changes; this file records what changed, when, and why.
 
+## Unreleased — the spec, before anyone else reads it
+
+Ten findings from the two passes before this one are settled in
+[SPEC.md](SPEC.md), and exactly one of them changed a reason code. The version
+string is still `charter/0.1`, no artifact in `vectors/` is a different file than
+it was, the 54 recorded verdicts are the ones they were, and both implementations
+still replay 54 of 54 and 20 of 20. What changed is what the document says about
+the ten places a third implementer would otherwise have had to guess, and that is
+the point of doing it now: a third implementation written against an ambiguous
+rule freezes the ambiguity.
+
+### The reason code an absent field carries
+
+The finding the probe turned up is the one with a code change behind it. An entry
+with no `content_sha256` at all was reported `NON_CANONICAL_ENCODING` by
+`L0.PROVENANCE.CONTENT_HASH_FORMAT` — a code whose own vocabulary entry says "a
+field encoding is not the canonical encoding of the value it carries" — while the
+check's sentence said "absent (MISSING)" and section 10 defines `MISSING` as "a
+required thing is absent". Both implementations agreed, which is why a
+differential harness could not see it: two readings that are wrong the same way
+agree about everything, including the mistake. It is the first finding in this
+project that was a bug in the reference rather than a silence in the spec.
+
+Both implementations now report `MISSING`, and so does `L0.PROVENANCE.FIELDS` for
+the same absent field — the same fact, one code, in the two checks that required
+the value. That second one is not a second change of mind: `L0.MANIFEST.FIELDS` in
+the reference had been reporting `MISSING` for an absent manifest field since it
+was written, the log's FIELDS was the outlier with a constant `MALFORMED`, and
+the port's manifest path was an outlier in the other direction. Leaving those
+alone would have recorded two codes for one absence in the one fixture this pass
+rebuilds, and a third implementer reading section 10 would have had to pick one.
+
+`git diff -- verifier/` for this pass is two call sites and their comments: the
+code each check passes to the reporter comes from the field's own reader instead
+of being written at the call site. No check's logic changed, no status changed, no
+verdict changed, and no exit code changed. The port's half is the same rule in
+`documents.py` (absence is `MISSING` where a required field is not there) and
+`checks.py` (the digest check reads the state of the field).
+
+### The fixture, and what was not rebuilt
+
+`vectors/probe/out/log-line-not-canonical.charter` is the same 984 bytes with the
+same SHA-256 it had: the recipe did not change, only the recorded answer, which
+now carries `MISSING` for the two checks instead of a spelling code. The probe's
+`asked` for that case now states the answer the format requires, so `--build`
+refuses to record anything else — which is how the finding was found in the first
+place, and the mechanism that keeps it settled. `vectors/expected.json` and all 54
+artifacts are untouched; `vectors/probe/expected.json` is the only file in
+`vectors/` this pass changed. `implementations/python/tests/test_spec_gaps.py`
+freezes the answer, and `test_container.py` and `test_documents.py` had three
+assertions that said MALFORMED for an absent field; they say MISSING now.
+
+### The rules the code was already following, now written down
+
+Nine of the ten are specification issues rather than code issues, and this pass
+made the document say what the implementations do:
+
+- **Which code `01` carries** — `NON_INTEGER_NUMBER`, with `1.0`, `1e0` and `-0`.
+  §4.1 had already stated it; the pass confirmed the sentence and the code agree.
+- **What `L0.PROVENANCE.NONEMPTY` counts** — entries, not lines. §7 said so; the
+  row for the check in §10 now says it too, because the row is where a reader
+  looks up what "at least one" means.
+- **Which copy of a duplicated entry name is read** — the one whose local header
+  comes first. §2 had the sentence and §3.4 now carries the rule and the reason
+  behind it: the layout rule does not catch a duplicate, and a reader that took
+  the last copy could report the same duplicate as every other reader and still
+  disagree about the document.
+- **What a skipped check carries** — `PREREQUISITE_FAILED`, except after the
+  version gate, where it carries `UNSUPPORTED_VERSION`. Unchanged in §10.1.
+- **The dependency graph** — §10.1 stated it as a table of what is skipped when
+  what fails, which is a table of consequences, and as a set of counts a reader
+  could only reproduce by memorising. It now states the rule: every check reads a
+  fact, a fact has one check that establishes it, and a check whose fact never
+  arrived is SKIP — and the count an artifact records is that rule applied to that
+  artifact rather than a number an implementation may carry. The facts are named
+  per entry, so the arithmetic ("an archive with no `manifest.json` leaves twelve
+  checks unrun") is something a reader can do. A sentence the old table needed and
+  did not have: the gate is the fact, not the status — `L0.ZIP.ENTRY_SET` fails
+  for a duplicate or an extra entry and nothing is skipped, because the fact the
+  other checks need still holds.
+- **`NON_CANONICAL_ENCODING`** — its rule was "a second spelling of the same
+  bytes", which is not what either implementation does and not what a fixture
+  records: `signature-padded` is `NON_CANONICAL_ENCODING` for a string that
+  decodes to nothing, and a digest of 63 characters is `NON_CANONICAL_ENCODING` in
+  both implementations while §5's table said MALFORMED. The table and the
+  paragraphs under it now say what both readings do: `NON_CANONICAL_ENCODING`
+  when a string is not the one spelling this format fixes for its value,
+  MALFORMED when a value is not a string or decodes to a wrong length for its
+  algorithm, `MISSING` when it is not there at all.
+
+The one place this pass edited a sentence rather than adding one is that §5
+table, and the reason is worth recording: its MALFORMED column was already
+contradicted by a recorded answer, so leaving it would have left the document
+contradicting its own kit in exactly the area this pass was asked to settle. No
+behaviour changed with it — both implementations already answered the way the
+table now reads, and `test_spec_gaps.py` freezes the two digests the kit does not
+contain.
+
+### The two contracts that are not about a file
+
+§12.1 now says what kind of requirement the `--json` shape is. It is not a rule
+about `.charter` files: nothing in sections 2 to 9 needs a command line, and a
+reader that prints nothing is a conforming reader. It is a contract between
+implementations, and what makes it binding is that conformance is recorded through
+it — the kit compares the verdict, the exit code, the failing and unsupported
+checks with their reason codes, and the number of checks never reached, and every
+one of those is a value in that object. An implementation that has a command line
+prints that shape; one that has no command line is not missing a requirement.
+
+`test/spec.test.js` is new, and it exists because the vocabulary is the one part
+of this document that is also code. It reads §10 and compares it with
+`verifier/status.js` in both directions: every reason code the section names is
+declared, every code the module declares is named, and the section's 30 check ids
+are the registry's 30 and no others. The last of those would have caught
+`L0.MANIFEST.FORMAT`, which §5's table named and no registry ever had. The first
+two would have caught `NON_CANONICAL_ENCODING` sitting in the vocabulary with no
+rule that could produce it.
+
 ## Unreleased — the probe, and the editor
 
 The format is unchanged, and so is every recorded answer: the 54 verdicts in

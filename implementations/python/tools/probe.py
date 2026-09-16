@@ -29,10 +29,19 @@ quietly recorded whatever it was given would be a probe that cannot fail.
 
 Two of these 20 wanted an answer the specification did not give, and both are now
 written down in it (a leading zero is a NON_INTEGER_NUMBER; `L0.PROVENANCE.NONEMPTY`
-counts entries and not lines). The rest are cases where the specification is
-clear and the *reference's* reading of it is what the second implementation was
-compared against — SPEC.md section 16 and `implementations/python/README.md`
-record which was which.
+counts entries and not lines). A third is the opposite case, and the reason this
+file exists in a repository whose spec already has a second reading of it: an
+entry with no `content_sha256` at all was reported as a *spelling* problem by both
+implementations, while `L0.PROVENANCE.CONTENT_HASH_FORMAT`'s own sentence said
+"absent (MISSING)" and the vocabulary has a code for exactly that. Two
+implementations that are wrong the same way agree about everything, including the
+mistake; a probe that asks the question in the spec's words is what turns that
+into a finding. Section 10, section 5 and section 7 now say which code an absent
+field carries, and `vectors/probe/expected.json` records it.
+
+The rest are cases where the specification is clear and the *reference's* reading
+of it is what the second implementation was compared against — SPEC.md section 16
+and `implementations/python/README.md` record which was which.
 
 Nothing here reads `verifier/**`. The reference is a program that is run, not a
 source file that is read, and the port's `tests/test_spec_gaps.py` holds the
@@ -268,8 +277,15 @@ def probes() -> list[dict]:
         },
         {
             "name": "log-line-not-canonical",
-            "probe": "A log line with a space after its colon: the value is well-formed and its bytes are not the canonical form of it.",
-            "asked": {"verdict": "BROKEN", "fail": {"L0.PROVENANCE.CANONICAL": "NON_CANONICAL"}},
+            "probe": "A log line with a space after its colon: the value is well-formed and its bytes are not the canonical form of it. The line also carries one field of the seven an entry needs, and the six that are absent are MISSING — this is the case that settled it, and the only finding in this probe that was a bug in the reference rather than a silence in the spec: section 10 defines MISSING for \"a required thing is absent\", and the reference reported a spelling code for a digest that is not there.",
+            "asked": {
+                "verdict": "BROKEN",
+                "fail": {
+                    "L0.PROVENANCE.CANONICAL": "NON_CANONICAL",
+                    "L0.PROVENANCE.FIELDS": "MISSING",
+                    "L0.PROVENANCE.CONTENT_HASH_FORMAT": "MISSING",
+                },
+            },
             "bytes": with_log(b'{"action": "create"}\n'),
         },
         {

@@ -5,11 +5,13 @@ no FAIL with at least one SKIP or UNSUPPORTED is INCOMPLETE and exits 1; any
 FAIL is BROKEN and exits 2. There is no fourth verdict and no "pass with
 warnings".
 
-The JSON form is the interface a script consumes, and its shape is not written
-down in the spec: SPEC section 12 says `--json` "prints the verdict and nothing
-else" and stops there. The keys below are the reference CLI's keys, read off
-its output; the README in this directory records that as a finding rather than
-presenting it as something the spec states.
+The JSON form is the interface a script consumes, and SPEC section 12.1 states it
+key for key: the eight keys, the `summary` counts, every check's id, status and
+reason code, and the rule for when `artifact` is `null`. The keys below are that
+section, in the order it lists them. Section 12.1 also says what kind of
+requirement it is: the format needs no command line, and an implementation that
+offers `verify --json` prints this shape because the recorded answers are compared
+through it.
 """
 
 from __future__ import annotations

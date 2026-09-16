@@ -71,7 +71,10 @@ order, same statuses, same reason codes, same exit codes, same `summary` counts,
 same `artifact` or `null`), and 20 hand-built artifacts that the kit does not
 cover were put to both implementations. That last pass is where the findings came
 from: it started at nine disagreements and ended at zero, and the spec changes
-below are what closed them.
+below are what closed them. Committing the probe (`vectors/probe/`) then found a
+tenth, and it was the first one that was a bug in the *reference* rather than a
+silence in the spec: the reason code an absent field carries. Both readings agree
+on it now, and §10 says which code it is.
 
 None of it required reading `verifier/**`. The replay installs an audit hook on
 `open` and fails if any path under `verifier/` is ever opened;
@@ -88,8 +91,9 @@ now follow it. The cases are frozen as tests in `tests/test_spec_gaps.py`.
 
 | Question the spec did not answer | Decision | Where it now says so |
 | --- | --- | --- |
-| Which check owns the *spelling* of a digest, a key and a signature? | The check that reads the value, not FIELDS: MALFORMED for a value that does not decode or is the wrong length, NON_CANONICAL_ENCODING for a second spelling of the same bytes | §5, §7 |
+| Which check owns the *spelling* of a digest, a key and a signature? | The check that reads the value, not FIELDS. NON_CANONICAL_ENCODING for a string that is not the one spelling of its value — the wrong case, the wrong length, a character outside the alphabet, `=` padding, trailing bits that are not zero; MALFORMED for a value that is not a string or that decodes to the wrong length for its algorithm; MISSING when the field is not there at all | §5, §7 |
 | Who reports a `format` that is absent or not a string? | `L0.FORMAT.IDENTIFIER`, with MISSING and MALFORMED, because it is the check that runs before the fields | §5 |
+| Which reason code does an absent field carry? | MISSING, from every check that required the value — including `L0.PROVENANCE.CONTENT_HASH_FORMAT`, which reported NON_CANONICAL_ENCODING for a digest that was not there, and this port's manifest path, which reported MALFORMED | §5, §7, §10 |
 | Which reason code does `01` carry? | NON_INTEGER_NUMBER, with `1.0`, `1e0` and `-0` | §4.1 |
 | Does `L0.PROVENANCE.NONEMPTY` count lines or entries? | Entries: a log whose only line is `[1,2]` has none, so PARSE reports the line and NONEMPTY is SKIP | §7 |
 | Which of two entries with the same name does a reader read? | The one whose local header comes first in the file | §3 |
@@ -138,11 +142,26 @@ padded signature all pass FIELDS in the reference, and are reported by
 **`NON_CANONICAL_ENCODING` was in the vocabulary and in no rule.** §10 lists the
 reason code; no sentence in the document produced it, which the spec's own first
 paragraph forbids ("a rule that no check enforces is not a rule"). It now has a
-job: the same value, spelled a second time — an uppercase digest, `=` padding, or
-a base64url tail whose trailing bits are not zero.
+job: a field whose string is not the one spelling this format fixes for its value
+— an uppercase digest, a digest of the wrong length, `=` padding, a base64url tail
+whose trailing bits are not zero — while MALFORMED is for a value that is not a
+string or that decodes to the wrong length for its algorithm. §5 states the rule,
+§10 says what the code means, and `tests/test_spec_gaps.py` holds both.
+
+**An absent field was reported as a misspelling.** This one was found by the probe
+rather than by this reading, and it is the only finding in either list that was a
+bug in the *reference* rather than a silence in the spec: given an entry with no
+`content_sha256` at all, the reference reported `NON_CANONICAL_ENCODING` from
+`L0.PROVENANCE.CONTENT_HASH_FORMAT` — whose own sentence said "absent (MISSING)" —
+while §10 defines MISSING as "a required thing is absent". Both implementations
+agreed, which is what made it invisible: two readings that are wrong in the same
+way agree about everything, including the mistake. §5, §7 and §10 now state the
+rule, both implementations report MISSING, and the probe's record carries it.
 
 (§5's table also named the format check `L0.MANIFEST.FORMAT`, which is not one of
-the 30 ids in §10's registry.)
+the 30 ids in §10's registry. `test/spec.test.js` now compares the ids and the
+reason codes in §10 with the modules that declare them, in both directions, so a
+name that exists in one and not the other fails the run.)
 
 ## What was hardest
 

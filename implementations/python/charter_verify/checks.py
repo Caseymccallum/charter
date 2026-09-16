@@ -845,10 +845,25 @@ def check_provenance_nonempty(ctx: Context) -> Outcome:
 
 
 def check_provenance_content_hash_format(ctx: Context) -> Outcome:
+    """Every entry declares a digest. L0.PROVENANCE.CONTENT_HASH_FORMAT.
+
+    The code follows the state of the field rather than a constant here: a field
+    that is not in the entry is MISSING, and a string that is there and is not the
+    one spelling of a digest is NON_CANONICAL_ENCODING. SPEC section 5 states the
+    rule and section 7 applies it to the log, both of which were amended after a
+    probe asked this exact question: the reference used to report a spelling
+    problem for a field that was not there.
+    """
     ctx.version_gate()
     values = ctx.log_values()
     for number, (line, value) in enumerate(values, start=1):
-        digest = value.get("content_sha256")
+        if "content_sha256" not in value:
+            return failed(
+                MISSING,
+                f"line {number} carries no content_sha256 field, and a digest that "
+                "is not there is not a digest spelled wrongly",
+            )
+        digest = value["content_sha256"]
         if not documents.is_digest(digest):
             return failed(
                 NON_CANONICAL_ENCODING,

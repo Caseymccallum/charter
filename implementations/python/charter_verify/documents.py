@@ -8,8 +8,10 @@ byte-level rules (that is `canonical`) and none about keys (that is `ed25519`).
 
 Two splits are worth naming, because they are the ones a port can get wrong:
 
-* **FIELDS versus EXTRA_FIELDS.** A field this version defines that is missing
-  or wrongly typed is MALFORMED. A field this version does not define is
+* **FIELDS versus EXTRA_FIELDS.** A field this version defines that is missing is
+  MISSING: SPEC section 10 defines MISSING as "a required thing is absent", and a
+  field nobody wrote is not a field whose spelling is wrong. A field that is
+  there and wrongly typed is MALFORMED. A field this version does not define is
   UNKNOWN_FIELD. They are different complaints and the kit keeps them apart:
   `manifest-extra-field` is signed correctly and refused anyway.
 * **PARSE versus CANONICAL.** `provenance.jsonl` is split on the byte 0x0A
@@ -26,7 +28,7 @@ from typing import Any
 
 from . import limits
 from .errors import Refusal
-from .vocabulary import LIMIT_EXCEEDED, MALFORMED
+from .vocabulary import LIMIT_EXCEEDED, MALFORMED, MISSING
 
 FORMAT = "charter/0.1"
 ALGORITHM = "ed25519"
@@ -154,18 +156,26 @@ def read_manifest(value: dict) -> Manifest:
     here, and the checks that read those values report what is wrong with them.
     SPEC section 5's table said otherwise and was amended; the recorded answer
     for `manifest-signature-truncated` had already contradicted it.
+
+    What it does mean by "present" is that absence is its own answer: a field
+    that is not in the object is MISSING, and only a field that is there and
+    cannot be used is MALFORMED. Section 10 gives the two codes one meaning each,
+    and a reader that reported a malformation for a string it never read would be
+    describing a value nobody wrote.
     """
     for field in MANIFEST_REQUIRED:
         if field not in value:
-            raise Refusal(MALFORMED, f"the manifest carries no {field!r} field")
+            raise Refusal(MISSING, f"the manifest carries no {field!r} field")
     title = value["title"]
     if not isinstance(title, str) or title == "":
         raise Refusal(MALFORMED, "manifest.title is not a non-empty string")
     check_timestamp(value["created_at"], "manifest.created_at")
 
     content = value["content"]
-    if not isinstance(content, dict) or "sha256" not in content:
-        raise Refusal(MALFORMED, "manifest.content is not an object with a sha256 field")
+    if not isinstance(content, dict):
+        raise Refusal(MALFORMED, "manifest.content is not an object")
+    if "sha256" not in content:
+        raise Refusal(MISSING, "manifest.content carries no 'sha256' field")
     if not isinstance(content["sha256"], str):
         raise Refusal(MALFORMED, "manifest.content.sha256 is not a string")
 
@@ -174,7 +184,7 @@ def read_manifest(value: dict) -> Manifest:
         raise Refusal(MALFORMED, "manifest.author is not an object")
     for field in AUTHOR_FIELDS:
         if field not in author:
-            raise Refusal(MALFORMED, f"manifest.author carries no {field!r} field")
+            raise Refusal(MISSING, f"manifest.author carries no {field!r} field")
     name = author["name"]
     if not isinstance(name, str) or name == "":
         raise Refusal(MALFORMED, "manifest.author.name is not a non-empty string")
@@ -195,14 +205,17 @@ def read_manifest(value: dict) -> Manifest:
 
 
 def read_entry(value: dict, line: bytes) -> LogEntry:
-    """The seven fields of one line, present and typed, or MALFORMED.
+    """The seven fields of one line, present and typed. L0.PROVENANCE.FIELDS.
 
     As in the manifest, the spelling of `content_sha256`, of `parent` and of the
-    signature is the business of the check that consumes it.
+    signature is the business of the check that consumes it, and a field that is
+    not in the object is MISSING rather than MALFORMED: absence has its own reason
+    code, and the check that reads the value reports the same one when it goes
+    looking for a value that is not there (SPEC sections 5, 7 and 10).
     """
     for field in ENTRY_FIELDS:
         if field not in value:
-            raise Refusal(MALFORMED, f"a provenance entry carries no {field!r} field")
+            raise Refusal(MISSING, f"a provenance entry carries no {field!r} field")
     check_timestamp(value["timestamp"], "a provenance entry's timestamp")
     if value["action"] not in ACTIONS:
         raise Refusal(
@@ -218,7 +231,7 @@ def read_entry(value: dict, line: bytes) -> LogEntry:
         raise Refusal(MALFORMED, "a provenance entry's author is not an object")
     for field in ENTRY_AUTHOR_FIELDS:
         if field not in author:
-            raise Refusal(MALFORMED, f"a provenance entry's author carries no {field!r}")
+            raise Refusal(MISSING, f"a provenance entry's author carries no {field!r}")
     name = author["name"]
     if not isinstance(name, str) or name == "":
         raise Refusal(MALFORMED, "a provenance entry's author.name is not a non-empty string")

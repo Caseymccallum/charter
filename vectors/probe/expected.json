@@ -419,11 +419,13 @@
       "file": "out/log-line-not-canonical.charter",
       "bytes": 984,
       "sha256": "ec9e7a94aaee648ea0a8d63ec066eaf45df0d9f58205a70e189455f40debdbb9",
-      "probe": "A log line with a space after its colon: the value is well-formed and its bytes are not the canonical form of it.",
+      "probe": "A log line with a space after its colon: the value is well-formed and its bytes are not the canonical form of it. The line also carries one field of the seven an entry needs, and the six that are absent are MISSING — this is the case that settled it, and the only finding in this probe that was a bug in the reference rather than a silence in the spec: section 10 defines MISSING for \"a required thing is absent\", and the reference reported a spelling code for a digest that is not there.",
       "asked": {
         "verdict": "BROKEN",
         "fail": {
-          "L0.PROVENANCE.CANONICAL": "NON_CANONICAL"
+          "L0.PROVENANCE.CANONICAL": "NON_CANONICAL",
+          "L0.PROVENANCE.FIELDS": "MISSING",
+          "L0.PROVENANCE.CONTENT_HASH_FORMAT": "MISSING"
         }
       },
       "expected": {
@@ -431,8 +433,8 @@
         "exit_code": 2,
         "fail": {
           "L0.PROVENANCE.CANONICAL": "NON_CANONICAL",
-          "L0.PROVENANCE.FIELDS": "MALFORMED",
-          "L0.PROVENANCE.CONTENT_HASH_FORMAT": "NON_CANONICAL_ENCODING"
+          "L0.PROVENANCE.FIELDS": "MISSING",
+          "L0.PROVENANCE.CONTENT_HASH_FORMAT": "MISSING"
         },
         "unsupported": {},
         "skips": 6

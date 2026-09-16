@@ -8,6 +8,7 @@ from charter_verify import base64url, canonical, documents, ed25519
 from charter_verify.errors import Refusal
 from charter_verify.vocabulary import (
     MALFORMED,
+    MISSING,
     NON_CANONICAL_ENCODING,
 )
 
@@ -124,10 +125,17 @@ class ManifestFieldsTest(unittest.TestCase):
         self.assertEqual(len(base64url.decode(manifest.signature_text)), 64)
         self.assertEqual(len(base64url.decode(manifest.public_key_text)), 32)
 
-    def test_a_missing_field_is_malformed(self) -> None:
+    def test_a_missing_field_is_missing_and_not_malformed(self) -> None:
+        """Absence has its own code. SPEC section 10 gives MISSING one meaning.
+
+        A field that is not in the object is not a field whose spelling is wrong,
+        and the rule is stated where the manifest's fields are read (SPEC section
+        5) rather than left to a reader to guess from the vocabulary alone.
+        """
         value = self.base()
         del value["title"]
-        self.assertEqual(reason_of(documents.read_manifest, value), MALFORMED)
+        self.assertEqual(reason_of(documents.read_manifest, value), MISSING)
+        self.assertNotEqual(reason_of(documents.read_manifest, value), MALFORMED)
 
     def test_the_algorithm_is_an_enumeration_of_one(self) -> None:
         value = self.base()

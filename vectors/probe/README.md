@@ -35,15 +35,18 @@ ended at zero, and every change it forced was either a SPEC.md amendment or a
 change in the port. Committing the harness and its fixtures is what turns that
 claim from a sentence in a report into something a fresh clone can re-run:
 
-- **A missing `content_sha256` is reported as a spelling problem.** The probe
+- **An absent field is MISSING, and this is settled.** The probe
   `log-line-not-canonical` carries an entry with no digest field at all, and
-  `L0.PROVENANCE.CONTENT_HASH_FORMAT` reports `NON_CANONICAL_ENCODING`, whose
-  definition is "a field encoding is not the canonical encoding of the value it
-  carries" — while the reference's own sentence for it says "entry 1's
-  `content_sha256` is absent (MISSING)", and the vocabulary has a code for
-  exactly that. Both implementations agree, so this is not a divergence; it is a
-  place where SPEC.md 10's vocabulary and one check's wording could be brought
-  together. `implementations/python/tests/test_spec_gaps.py` freezes the answer.
+  `L0.PROVENANCE.CONTENT_HASH_FORMAT` used to report `NON_CANONICAL_ENCODING` —
+  whose definition is "a field encoding is not the canonical encoding of the value
+  it carries" — while its own sentence said "entry 1's `content_sha256` is absent
+  (MISSING)", and the vocabulary has a code for exactly that. Both implementations
+  agreed, so this was never a divergence; it was the first finding that was a bug
+  in the reference rather than a silence in the spec. It is settled in SPEC.md §5,
+  §7 and §10: a field that is not there carries MISSING, from the check that asks
+  whether it is present and from the check that reads it, and both implementations
+  report it. The recorded answer for this case changed with it, and
+  `implementations/python/tests/test_spec_gaps.py` freezes the answer.
 - **A verdict whose title is outside the host's code page did not survive a
   pipe.** On Windows, with stdout redirected, Python encodes text with the
   console code page and raises on the first character outside it — so asking the
@@ -53,9 +56,10 @@ claim from a sentence in a report into something a fresh clone can re-run:
   explicitly, and `implementations/python/tests/test_cli.py` holds it there. No
   fixture in the kit reaches it: all 54 titles are ASCII.
 
-Neither is a change to the format. The first is written down above and in the
-test that freezes it; the second is a bug in a program, which is the other thing
-a differential harness is for.
+The second is a bug in a program, which is the other thing a differential harness
+is for. The first changed one recorded answer — a reason code, in a fixture whose
+bytes are the same bytes they were — and no artifact in the kit or here is a
+different file than it was.
 
 ## Running it, and what it needs
 
@@ -99,5 +103,9 @@ rather than a finding, and that has to be settled in SPEC.md rather than papered
 over by overwriting a record.
 
 Nineteen of the twenty questions were derived from SPEC.md alone and every one of
-them was confirmed by the reference. The list of what each case asks and why is
-in `implementations/python/tools/probe.py`, above the case.
+them was confirmed by the reference. The twentieth, the reason code an absent
+field carries, is derived from the spec too — §10 defines MISSING for exactly that
+— but it took a change to the reference for the recorded answer to be the answer
+the format requires, which is what the probe is for: it asked the question in the
+spec's words and the two answers did not match. The list of what each case asks
+and why is in `implementations/python/tools/probe.py`, above the case.

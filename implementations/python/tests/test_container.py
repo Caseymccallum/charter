@@ -12,7 +12,7 @@ import unittest
 import zlib
 
 from charter_verify import container, verify
-from charter_verify.vocabulary import DECODE_ERROR, EXTRA, MALFORMED, VERIFIED
+from charter_verify.vocabulary import DECODE_ERROR, EXTRA, MALFORMED, MISSING, VERIFIED
 
 from .support import (
     check,
@@ -181,6 +181,10 @@ class LineEndingTest(unittest.TestCase):
         is the canonical-byte rule, whose reason code is NON_CANONICAL. The
         README records this as a finding: the fixture `unterminated-log` covers a
         missing LF and nothing in the kit covers a CRLF.
+
+        The line is also `{"a":1}`, which is not an entry: every field the format
+        requires is absent from it, and FIELDS reports MISSING, because that is
+        what a required thing that is not there carries (SPEC sections 5, 7, 10).
         """
         parts = fixture_parts()
         lines = b'{"a":1}\r\n'
@@ -191,7 +195,7 @@ class LineEndingTest(unittest.TestCase):
             "NON_CANONICAL",
         )
         self.assertEqual(
-            check(artifact(parts), "L0.PROVENANCE.FIELDS").reason_code, MALFORMED
+            check(artifact(parts), "L0.PROVENANCE.FIELDS").reason_code, MISSING
         )
 
 

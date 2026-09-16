@@ -37,10 +37,9 @@ A `.charter` file is a ZIP archive. It holds exactly three entries:
 
 Those names, in that set, and nothing else. `L0.ZIP.ENTRY_SET` reports a missing
 entry, a duplicate name, or an extra entry, in that order of severity, and stops
-at the first of the three. A name that appears twice is refused, and the checks
-that follow read the copy whose local header comes first in the file: the artifact
-is broken either way, and the bytes a verdict is about should be the bytes the
-file states first rather than the bytes a directory happened to end on.
+at the first of the three. A name that appears twice is refused, and section 3.4
+fixes which of the two copies the checks that follow read, so that two readers of
+one file cannot disagree about the document.
 
 ZIP is the container because it is the one container every operating system can
 open without a library, which means a reader who does not trust this verifier
@@ -96,6 +95,19 @@ This is the rule that makes "the three entries" a claim about the file rather
 than a claim about a lookup table. Without it, an archive can hold a second
 copy of `content.md`, and two readers can disagree about which one is the
 document.
+
+The layout rule does not catch a name that appears twice. Two local headers
+carrying one name, and the two entries' data, are accounted for in order like any
+other bytes, so an archive with four entries and three names has nothing wrong
+with its layout — which is why `L0.ZIP.ENTRY_SET` refuses the *set* and not the
+layout. What the duplicate costs is a decision, because the checks that follow
+need one of the two copies named for them, and this document fixes which one:
+**the copy whose local header comes first in the file.** The artifact is broken
+either way, and the bytes a verdict is about should be the bytes the file states
+first rather than the bytes a directory happened to end on. A reader that took
+the last copy would report the same duplicate as every other reader and could
+still disagree with them about the document, its digest, and the entry the
+chain's head describes, which is the disagreement this sentence removes.
 
 ### 3.5 Declared sizes and CRC-32
 
@@ -281,23 +293,42 @@ One canonical JSON object, one LF, and no other field than these six:
 answers whether the fields are present and whether each holds the JSON value the
 table names, and nothing more: an uppercase digest, a key that is not 32 bytes
 and a signature written with `=` all pass it. The checks that *read* those values
-report what is wrong with the encoding:
+report what is wrong with the encoding, and a field that is not there at all is
+reported as an absence rather than as a spelling:
 
-| Value | Check | A value that does not decode, or has the wrong length | A second spelling of the same bytes |
+| Value | Check | Present, and not the one spelling of its value | Absent |
 | --- | --- | --- | --- |
-| `content.sha256` | `L0.CONTENT.HASH`, `L2.CHAIN.HEAD_MATCHES_CONTENT` | MALFORMED | NON_CANONICAL_ENCODING |
-| `author.public_key` | `L1.MANIFEST.KEY_ID` | MALFORMED | NON_CANONICAL_ENCODING |
-| `signature` | `L1.MANIFEST.SIGNATURE` | MALFORMED | NON_CANONICAL_ENCODING |
+| `content.sha256` | `L0.CONTENT.HASH`, `L2.CHAIN.HEAD_MATCHES_CONTENT` | NON_CANONICAL_ENCODING: not 64 lowercase hex characters, for any reason | MISSING |
+| `author.public_key` | `L1.MANIFEST.KEY_ID` | NON_CANONICAL_ENCODING when the string is not unpadded base64url; MALFORMED when it decodes to anything other than 32 bytes | MISSING |
+| `signature` | `L1.MANIFEST.SIGNATURE` | NON_CANONICAL_ENCODING when the string is not unpadded base64url; MALFORMED when it decodes to anything other than 64 bytes | MISSING |
 
-The distinction is the difference between a value that is not the value and a
-value that is the same value spelled a second way. `0097e5…` and `0097E5…` are
-not two digests, they are one digest and one file that would be a second file:
-canonical hex has lowercase digits, canonical base64url has no padding and no
-trailing bit pattern that is not zero, and NON_CANONICAL_ENCODING is the reason
-code for accepting either. `L1.MANIFEST.KEY_ID` and `L1.MANIFEST.SIGNATURE` are
-also where an unusable key is reported, which is why the checks that depend on
-the key are skipped when it says so: an entry's author can be compared with a key
-identity, and there is none.
+**A value's reason code is decided by what the string is, not by how much of it
+is missing.** NON_CANONICAL_ENCODING means the string is not the one spelling
+this format fixes for that value, whatever the reason it is not: `0097e5…` and
+`0097E5…` are not two digests, they are one digest spelled two ways; a string of
+63 hex characters is not the spelling of any digest; and a base64url string with
+`=` padding, with a character outside the alphabet, or with trailing bits that
+are not zero is not the one spelling of its bytes either. Every one of those
+carries NON_CANONICAL_ENCODING, from the check that reads the value and from no
+other. MALFORMED is for the cases where the string *is* an encoding and the value
+is wrong in some other way — it is not a string, or not the JSON type the table
+names (which is FIELDS' question), or it decodes to a byte string of the wrong
+length for its algorithm, 31 bytes for a key and 63 for a signature. A value that
+is not there at all is neither: it carries MISSING, because the vocabulary's word
+for a required thing that is absent is MISSING, and a check that reported a
+spelling problem for a field it never read would be describing a string it does
+not have.
+
+An absence is reported by every check that required the value, with that one
+code. `L0.MANIFEST.FIELDS` requires the manifest's fields to be present,
+`L0.PROVENANCE.FIELDS` requires an entry's seven, `L0.FORMAT.IDENTIFIER` requires
+`format` (the paragraph below says why the field that is read before the fields
+is the one that reports it), and `L0.PROVENANCE.CONTENT_HASH_FORMAT` requires each
+entry's digest. So an entry with no `content_sha256` fails two checks, and both of
+them say MISSING: the field is missing and the digest is missing, and it is one
+fact about one absence rather than two readings of it. The checks that would have used
+the absent value are SKIP instead, by the graph in section 10.1 — an absence is
+not an answer.
 
 `L0.MANIFEST.CANONICAL` compares the bytes on disk against the canonical bytes
 for the object they parse to, followed by one LF. A file that parses and is not
@@ -369,8 +400,15 @@ As in the manifest, `L0.PROVENANCE.FIELDS` answers whether the seven fields are
 present and hold the JSON values the table names, and the spelling of a value is
 the business of the check that reads it: `L0.PROVENANCE.CONTENT_HASH_FORMAT` for
 `content_sha256`, `L2.CHAIN.LINKS` for `parent`, and `L1.PROVENANCE.SIGNATURES`
-for the signature. A value that does not decode, or that is the wrong length, is
-MALFORMED; a second spelling of the same bytes is NON_CANONICAL_ENCODING.
+for the signature. The digest is the value whose codes section 5 spells out, and
+both of them are here as they are there: NON_CANONICAL_ENCODING when the string is
+not 64 lowercase hex characters — whatever the reason, a length, a case, or a
+character that is not a hex digit — and MISSING when there is no such field at
+all. An absent digest is not a misspelling, and it is not a malformation:
+`L0.PROVENANCE.CONTENT_HASH_FORMAT` reports MISSING, because the value it reads is
+not there, and `L0.PROVENANCE.FIELDS` reports MISSING for the same absence,
+because the seven fields it requires are not all present. Two checks, one code,
+one fact, and neither of them is a sentence about a string nobody has.
 
 The file is read as **bytes** and split on `0x0A` before any line is decoded.
 A verifier that read it through a text decoder would have already lost its
@@ -479,7 +517,21 @@ EXTRA, DUPLICATE, NON_CANONICAL, NON_CANONICAL_ENCODING, NON_INTEGER_NUMBER,
 NUMBER_OUT_OF_RANGE, DECODE_ERROR, UNSUPPORTED_VERSION, UNSUPPORTED_FEATURE,
 UNKNOWN_FIELD, LIMIT_EXCEEDED, PREREQUISITE_FAILED. The prose `detail` may be
 reworded between releases; the `reason_code` is part of the recorded
-conformance answers and may not be.
+conformance answers and may not be. The list is closed — a check may not report a
+code that is not in it, and the vocabulary module `verifier/status.js` is the same
+list, which `test/spec.test.js` holds: it fails the run when the codes this
+section names and the codes that module declares stop being the same set.
+
+What each code is for is fixed by the rule that produces it. Five of them are
+shared by several checks, and they are the ones a reader is most likely to need:
+
+| Code | What it means, and what produces it |
+| --- | --- |
+| `OK` | the requirement holds. It is the only code a `PASS` may carry |
+| `MISSING` | a required thing is absent: a field that is not in the object, the log entry that is not in the log, the entry that is not in the archive. It is never a spelling problem and never a malformation, and a check that reads a value nobody wrote reports `MISSING` rather than inventing a string to complain about (§5, §7) |
+| `NON_CANONICAL_ENCODING` | a field's string is not the one spelling this format fixes for its value. §5 states the rule and both codes it can produce; it is reported by the check that reads the value and by no other |
+| `NON_CANONICAL` | the bytes are well-formed but are not the canonical form of the value they parse to — the same idea as `NON_CANONICAL_ENCODING` about a document's bytes rather than about a field's string. `L0.CONTENT.UTF8` also reports it for a byte order mark, because the bytes of the file are the content |
+| `PREREQUISITE_FAILED` | a `SKIP`: the check was not reached because something it needed did not pass. The one code a skip may carry instead is `UNSUPPORTED_VERSION`, and section 10.1 says when |
 
 The 30 checks, in the order they always appear in a verdict:
 
@@ -505,7 +557,7 @@ The 30 checks, in the order they always appear in a verdict:
 | L0 | `L0.PROVENANCE.CANONICAL` | each line is its canonical form plus one LF |
 | L0 | `L0.PROVENANCE.FIELDS` | the seven fields of every entry, typed and encoded |
 | L0 | `L0.PROVENANCE.EXTRA_FIELDS` | no field this version has no rule for |
-| L0 | `L0.PROVENANCE.NONEMPTY` | at least one entry |
+| L0 | `L0.PROVENANCE.NONEMPTY` | at least one entry, counted as entries and not as lines |
 | L0 | `L0.PROVENANCE.CONTENT_HASH_FORMAT` | every `content_sha256` is a lowercase digest |
 | L1 | `L1.MANIFEST.KEY_ID` | the key id is the derivation of the public key |
 | L1 | `L1.MANIFEST.SIGNATURE` | the manifest signature verifies |
@@ -526,24 +578,50 @@ refused before it could.
 
 A SKIP is a fact about the reader, not about the file, so the number of checks a
 verdict never reached is part of the recorded conformance answers and has to be
-the same in every implementation. That makes the dependency graph below part of
-the format. It is stated here rather than left to be inferred from the order of
-the registry, because a check may depend on one that is reported *before* it
-(`L0.FORMAT.IDENTIFIER` is reported before `L0.MANIFEST.PARSE` and cannot run
-until the manifest has been read) as well as on one after it.
+the same in every implementation. That makes the dependency graph part of the
+format, and the graph is a **rule rather than a table of counts**: every check
+reads a fact, a fact has exactly one check that establishes it, and a check whose
+fact was never established is SKIP. The rule is what an implementation follows;
+the count an artifact records is what the rule says about the facts that artifact
+did not establish, so no implementation carries the numbers.
 
-| A check that does not pass | What is skipped because of it |
-| --- | --- |
-| any check at all, because `L0.ZIP.READABLE` failed | every other check: there is no container to read |
-| `L0.ZIP.ENTRY_SET` (MISSING only) | every check that reads the entry that is absent |
-| `L0.ZIP.ENTRY_DATA` | `L0.ZIP.SIZES`, `L0.ZIP.CRC32`, and every check that reads an entry whose bytes did not decode |
-| `L0.MANIFEST.PARSE` | `L0.FORMAT.IDENTIFIER`, the other manifest checks, and every check that needs a manifest value |
-| `L0.FORMAT.IDENTIFIER` | everything from `L0.MANIFEST.CANONICAL` onward, with reason UNSUPPORTED_VERSION |
-| `L0.MANIFEST.FIELDS` | the manifest's key, signature and digest consumers, and the chain's head check |
-| `L0.PROVENANCE.PARSE` | the other log checks, the two checks that read an entry's key, and the chain |
-| `L0.PROVENANCE.FIELDS` | the log's key, signature, chain and head checks |
-| `L0.PROVENANCE.NONEMPTY` | `L1.PROVENANCE.FIRST_AUTHOR`, `L2.CHAIN.FIRST_PARENT_NULL`, `L2.CHAIN.HEAD_MATCHES_CONTENT`: the three that name *the first* or *the last* entry |
-| `L1.MANIFEST.KEY_ID`, when the key does not decode or is the wrong length | `L1.PROVENANCE.FIRST_AUTHOR`, `L1.PROVENANCE.KEYS`, `L1.PROVENANCE.SIGNATURES` |
+Nothing here follows from the order of the registry. A check may need a fact
+established by a check reported *before* it or *after* it: `L0.FORMAT.IDENTIFIER`
+is reported before `L0.MANIFEST.PARSE` and cannot run until the manifest has been
+read, and `L0.CONTENT.HASH` is reported before `L2.CHAIN.HEAD_MATCHES_CONTENT` and
+needs the digest the manifest declares.
+
+| The fact a check reads | The check that establishes it | The checks that cannot run without it |
+| --- | --- | --- |
+| the artifact is a ZIP that can be walked | `L0.ZIP.READABLE` | every other check — there is no container to read |
+| the entry that is named is in the archive | `L0.ZIP.ENTRY_SET` | the checks that read that entry |
+| the bytes of an entry decode | `L0.ZIP.ENTRY_DATA` | `L0.ZIP.SIZES`, `L0.ZIP.CRC32`, and the checks that read that entry |
+| `manifest.json` is one JSON object | `L0.MANIFEST.PARSE` | `L0.FORMAT.IDENTIFIER`, the other three manifest checks, and every check that reads a manifest value |
+| the format is the one this verifier implements | `L0.FORMAT.IDENTIFIER` | every check from `L0.MANIFEST.CANONICAL` onward, with reason UNSUPPORTED_VERSION |
+| the manifest's fields are readable | `L0.MANIFEST.FIELDS` | `L0.CONTENT.HASH`, all of `L1.`, and `L2.CHAIN.HEAD_MATCHES_CONTENT` |
+| `provenance.jsonl` is a list of objects | `L0.PROVENANCE.PARSE` | the other five log checks, all of `L1.PROVENANCE.`, and all of `L2.CHAIN.` |
+| an entry's seven fields are readable | `L0.PROVENANCE.FIELDS` | all of `L1.PROVENANCE.` and all of `L2.CHAIN.` |
+| the log holds at least one entry | `L0.PROVENANCE.NONEMPTY` | `L1.PROVENANCE.FIRST_AUTHOR`, `L2.CHAIN.FIRST_PARENT_NULL` and `L2.CHAIN.HEAD_MATCHES_CONTENT`: the three that name *the first* or *the last* entry |
+| the manifest's public key is a key | `L1.MANIFEST.KEY_ID`, when it reports a key that does not decode or is the wrong length | `L1.PROVENANCE.FIRST_AUTHOR`, `L1.PROVENANCE.KEYS`, `L1.PROVENANCE.SIGNATURES` |
+
+**The gate is the fact, not the status.** `L0.ZIP.ENTRY_SET` fails when a name
+appears twice and when an entry should not be there, and in both of those cases
+nothing is skipped: the fact the other checks need — that all three names are in
+the archive — holds, and the verdict is broken for a reason no other check's
+answer depends on. What gates is the entry being *absent*, which is the one way
+that fact is not established.
+
+The facts are facts about named things, which is what makes the third row
+answerable. The checks that read `manifest.json` are `L0.FORMAT.IDENTIFIER`, the
+four `L0.MANIFEST.` checks, `L0.CONTENT.HASH`, all five `L1.` checks and
+`L2.CHAIN.HEAD_MATCHES_CONTENT` — twelve of the 30. The checks that read
+`content.md` are `L0.CONTENT.UTF8` and `L0.CONTENT.HASH`: two. The checks that
+read `provenance.jsonl` are the six `L0.PROVENANCE.` checks, the three
+`L1.PROVENANCE.` checks and the three `L2.CHAIN.` checks: twelve more. So an
+archive with no `manifest.json` leaves twelve checks unrun, an archive with no
+`content.md` leaves two, and a log whose entries cannot be read leaves six — and
+each of those numbers is this paragraph applied to that file rather than a
+constant a reader may carry.
 
 Two rules make the graph answerable rather than approximate:
 
@@ -655,6 +733,23 @@ the *manifest* declares for the content — the claim, not a measurement of it.
 `detail` and `requirement` are prose and may be reworded; every other value here
 is part of the recorded answers and may not be.
 
+What kind of contract this is, is worth saying plainly, because it is not the same
+kind as section 3 or section 9. Sections 2 to 9 describe a file: nothing there
+needs a command line, a reader that never prints anything is a conforming reader,
+and no artifact becomes invalid because a program formats its answers differently.
+This section constrains *programs* — it is the part of the interface a
+specification has to fix if two implementations are to be compared at all. What
+makes it binding is the record: the conformance kit compares two implementations
+by comparing the verdict, the exit code, the failing checks with their reason
+codes, the unsupported checks with theirs, and the number of checks that were
+never reached, and every one of those five is a value in the object above. So an
+implementation that offers `verify --json` prints this shape, and an
+implementation that has no command line at all is not failing a requirement of
+the format: what it omits is a program, not a claim about a document. The keys
+that carry the format are the verdict, the exit code, the `summary` counts, each
+check's `id`, `status` and `reason_code`, and each limitation's `id`; `file` and
+`bytes` describe the invocation, and the prose fields are prose.
+
 The commands that write and describe files are the producer's:
 
 ```
@@ -689,13 +784,18 @@ Run the tests:
 npm test        # node --test: the runner finds test/*.test.js by itself
 ```
 
-The tests are written against this document, not against the implementation, and
-`test/purity.test.js` enforces the architectural rule that makes any of this
-worth trusting: nothing under `verifier/**` may import `node:`, read a file,
-touch the network, or consult a clock. The verifier is a function from bytes to
-a verdict. `cli/charter.js` is the only file in the project that reads a file,
-and `vectors/` and `test/` are the only other places allowed to look at the
-world outside a byte array.
+The tests are written against this document, not against the implementation.
+`test/spec.test.js` reads it: it fails the run when the reason codes section 10
+names and the codes `verifier/status.js` declares stop being the same set, and
+when the check ids this document names and the ids in that module's registry stop
+being the same list — a check id in the spec that no implementation has, or a
+check in the registry that the spec never names, is a drift in the one part of
+this document that is also code. `test/purity.test.js` enforces the architectural
+rule that makes any of this worth trusting: nothing under `verifier/**` may
+import `node:`, read a file, touch the network, or consult a clock. The verifier
+is a function from bytes to a verdict. `cli/charter.js` is the only file in the
+project that reads a file, and `vectors/` and `test/` are the only other places
+allowed to look at the world outside a byte array.
 
 ## 13. The conformance kit
 

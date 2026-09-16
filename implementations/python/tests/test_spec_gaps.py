@@ -2,10 +2,10 @@
 
 Every assertion here started life as a differential probe: an artifact built by
 hand, given to the reference CLI and to this verifier, and compared check by
-check. The probes are how the two disagreements that mattered were found — the
-digest, key and signature *spelling* rules, and the check that owns `format` —
-and this file is where those answers live now, so that a later change cannot
-quietly drift back.
+check. The probes are how the disagreements that mattered were found — the digest,
+key and signature *spelling* rules, the check that owns `format`, and the code an
+absent field carries — and this file is where those answers live now, so that a
+later change cannot quietly drift back.
 
 Each test names the spec section it comes from, and says plainly when the spec
 was silent and a probe decided it.
@@ -147,10 +147,49 @@ class LogReadingTest(unittest.TestCase):
             check(data, "L0.PROVENANCE.CANONICAL").reason_code, "NON_CANONICAL"
         )
 
-    def test_a_bad_digest_spelling_in_the_log_is_non_canonical_encoding(self) -> None:
-        data = with_log(b'{"action": "create"}\n')
+    def test_a_digest_that_is_there_and_misspelled_is_non_canonical(self) -> None:
+        """A digest that is present and not the one spelling: section 5's rule.
+
+        The log's digest is read by L0.PROVENANCE.CONTENT_HASH_FORMAT, and the
+        code for a string that is not 64 lowercase hex characters is
+        NON_CANONICAL_ENCODING whatever the reason — here, uppercase. A check does
+        not get to answer "malformed" for a value it can read.
+        """
+        value = canonical.parse_document(first_log_line())
+        value["content_sha256"] = value["content_sha256"].upper()
+        data = with_log(canonical.canonical_document(value))
+        self.assertEqual(check(data, "L0.PROVENANCE.FIELDS").status, "PASS")
         self.assertEqual(
             fails(data)["L0.PROVENANCE.CONTENT_HASH_FORMAT"], "NON_CANONICAL_ENCODING"
+        )
+
+    def test_a_digest_of_the_wrong_length_is_non_canonical_too(self) -> None:
+        """Length is not the axis MALFORMED sits on, and section 5 now says so.
+
+        Section 5's table used to put "does not decode, or has the wrong length"
+        under MALFORMED, and both implementations have always answered
+        NON_CANONICAL_ENCODING for a digest of 63 characters: a string that is not
+        the one spelling of a digest is not a digest spelled wrongly, it is not a
+        spelling of a digest at all. The table and the two paragraphs under it
+        were amended in step 7 to say what both readings already do; no fixture
+        covers this input, which is why it is frozen here rather than in the kit.
+        """
+        value = canonical.parse_document(first_log_line())
+        value["content_sha256"] = value["content_sha256"][:-1]
+        data = with_log(canonical.canonical_document(value))
+        self.assertEqual(check(data, "L0.PROVENANCE.FIELDS").status, "PASS")
+        self.assertEqual(
+            fails(data)["L0.PROVENANCE.CONTENT_HASH_FORMAT"], "NON_CANONICAL_ENCODING"
+        )
+
+        short = manifest_change(
+            lambda value: value["content"].__setitem__(
+                "sha256", value["content"]["sha256"][:-1]
+            )
+        )
+        self.assertEqual(fails(short)["L0.CONTENT.HASH"], "NON_CANONICAL_ENCODING")
+        self.assertEqual(
+            fails(short)["L2.CHAIN.HEAD_MATCHES_CONTENT"], "NON_CANONICAL_ENCODING"
         )
 
 
@@ -166,41 +205,67 @@ class IntegerSpellingTest(unittest.TestCase):
 
 
 class AbsentValueTest(unittest.TestCase):
-    """A value that is absent, and the reason code the vocabulary has for it.
+    """A value that is absent, and the one code the vocabulary has for it.
 
-    The probe `log-line-not-canonical` carries an entry with no `content_sha256`
-    at all, and the two implementations answer it identically — so this is not a
-    disagreement, it is a place where the answer is worth reading twice.
-    `L0.PROVENANCE.CONTENT_HASH_FORMAT` reports NON_CANONICAL_ENCODING, and SPEC
-    section 10 defines that as "a field encoding is not the canonical encoding of
-    the value it carries", while the check's own sentence says "entry 1's
-    content_sha256 is absent (MISSING)". The vocabulary has MISSING, and section
-    5's table of spellings has nothing to say about a value that is not there.
+    This is the tenth finding, and the first thing the probe found that was a
+    *specification* question rather than a bug in one program. The probe
+    `log-line-not-canonical` carries an entry with no `content_sha256` at all.
+    Both implementations reported NON_CANONICAL_ENCODING from
+    `L0.PROVENANCE.CONTENT_HASH_FORMAT`, whose own sentence said "absent
+    (MISSING)" — the code and the sentence disagreed with each other, and with
+    SPEC section 10, which defines MISSING as "a required thing is absent". The
+    reference's manifest path had been reporting MISSING for an absent field all
+    along; the log path was the outlier, and so was this port's manifest path.
 
-    Freezing it here is the point of committing the probe: an absent digest has
-    one recorded answer, both readings of the spec produce it, and a later
-    release that reported MISSING instead would have to change the record, this
-    test, and the sentence in section 5 that explains which code means what —
-    together, in the open, rather than by accident.
+    The rule is now stated in sections 5, 7 and 10 and both readings follow it: a
+    field that is not there carries MISSING, and every check that required the
+    value reports that same code — the check that asks whether the field is
+    present and the check that reads it. One absence, one code, in as many checks
+    as needed the value: that is what makes the recorded answer for the probe a
+    single fact rather than two readings of it.
 
-    The two sentences differ and that is allowed: the reference says "entry 1's
-    content_sha256 is absent (MISSING)" and this port says "line 1 declares
-    content_sha256 None, which is not the one spelling of a SHA-256 digest". Both
-    name the field and both point at the same rule, which is what section 10
-    requires of prose; only the code is fixed, and both produce the same one.
+    Freezing it here is the point of committing the probe. A later release that
+    went back to a spelling code for an absent field would have to change this
+    test, the record and the spec together, in the open.
     """
 
-    def test_an_absent_digest_is_reported_as_a_spelling_problem(self) -> None:
+    def test_an_absent_digest_is_missing_in_both_checks_that_required_it(self) -> None:
         data = with_log(b'{"action": "create"}\n')
         self.assertEqual(
             fails(data),
             {
                 "L0.PROVENANCE.CANONICAL": "NON_CANONICAL",
-                "L0.PROVENANCE.FIELDS": "MALFORMED",
-                "L0.PROVENANCE.CONTENT_HASH_FORMAT": "NON_CANONICAL_ENCODING",
+                "L0.PROVENANCE.FIELDS": "MISSING",
+                "L0.PROVENANCE.CONTENT_HASH_FORMAT": "MISSING",
             },
         )
-        self.assertEqual(check(data, "L0.PROVENANCE.CONTENT_HASH_FORMAT").status, "FAIL")
+        for id in ("L0.PROVENANCE.FIELDS", "L0.PROVENANCE.CONTENT_HASH_FORMAT"):
+            with self.subTest(id):
+                self.assertEqual(check(data, id).status, "FAIL")
+                self.assertEqual(check(data, id).reason_code, "MISSING")
+        self.assertEqual(skips(data), 6)
+
+    def test_an_absent_manifest_field_is_missing(self) -> None:
+        """The same rule where the manifest's fields are read.
+
+        No fixture and no probe asks this, which is why it is frozen here: the
+        reference reported MISSING for an absent manifest field and this port
+        reported MALFORMED, and SPEC section 5 now states which one the format is.
+        """
+        data = manifest_change(lambda value: value.pop("title"))
+        self.assertEqual(fails(data), {"L0.MANIFEST.FIELDS": "MISSING"})
+        self.assertEqual(skips(data), 7)
+
+    def test_an_absent_nested_field_is_missing_too(self) -> None:
+        """`content.sha256` and `author.public_key` are fields like any other.
+
+        The rule does not care how deep the missing field is: what is absent is
+        absent, and FIELDS is the check that says so.
+        """
+        data = manifest_change(lambda value: value["content"].pop("sha256"))
+        self.assertEqual(fails(data), {"L0.MANIFEST.FIELDS": "MISSING"})
+        nested = manifest_change(lambda value: value["author"].pop("public_key"))
+        self.assertEqual(fails(nested), {"L0.MANIFEST.FIELDS": "MISSING"})
 
 
 if __name__ == "__main__":

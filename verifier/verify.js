@@ -565,14 +565,17 @@ function reportLogEntries(reporter, state, lines, values) {
   for (let index = 0; index < values.length && fieldsDefect === null; index += 1) {
     const read = readEntry(values[index], index + 1);
     if (read.ok) entries.push(read.entry);
-    else fieldsDefect = `${read.detail} (${read.reason_code})`;
+    else fieldsDefect = read;
   }
   if (fieldsDefect === null) {
     state.entries = entries;
     reporter.pass('L0.PROVENANCE.FIELDS', `each of the ${entries.length} entr${entries.length === 1 ? 'y' : 'ies'} carries the fields charter/0.1 defines, with the types it defines them as`);
   } else {
     state.entries = null;
-    reporter.fail('L0.PROVENANCE.FIELDS', REASON.MALFORMED, fieldsDefect);
+    // The field's own reason code, not a constant: a field that is not in the
+    // object is MISSING, and only a value that is there and wrong is a
+    // malformation (SPEC.md section 5's rule, and section 10's vocabulary).
+    reporter.fail('L0.PROVENANCE.FIELDS', fieldsDefect.reason_code, `${fieldsDefect.detail} (${fieldsDefect.reason_code})`);
     reporter.skipUnset('L1.PROVENANCE.', 'an entry\'s fields could not be read, so its author and signature could not be compared');
     reporter.skipUnset('L2.CHAIN.', 'an entry\'s fields could not be read, so the chain they carry cannot be walked');
   }
@@ -588,7 +591,10 @@ function reportLogEntries(reporter, state, lines, values) {
   if (badDigest === null) {
     reporter.pass('L0.PROVENANCE.CONTENT_HASH_FORMAT', `every entry declares a SHA-256 digest of the content it produced, as ${DIGEST_HEX} lowercase hex characters`);
   } else {
-    reporter.fail('L0.PROVENANCE.CONTENT_HASH_FORMAT', REASON.NON_CANONICAL_ENCODING, badDigest);
+    // As above: the absence of a field is MISSING, and a digest that is there
+    // and is not the one spelling is NON_CANONICAL_ENCODING. Both codes come
+    // from the field's own reader, so the sentence and the code agree.
+    reporter.fail('L0.PROVENANCE.CONTENT_HASH_FORMAT', badDigest.reason_code, `${badDigest.detail} (${badDigest.reason_code})`);
   }
 }
 
@@ -627,13 +633,22 @@ function findUnknownEntryField(values) {
 }
 
 /**
+ * The first entry whose `content_sha256` is not readable, if any.
+ *
+ * The field's own reader decides both the code and the sentence: a field that is
+ * absent is MISSING, and a string that is not 64 lowercase hex characters is
+ * NON_CANONICAL_ENCODING. This check does not get to choose a code of its own —
+ * SPEC.md section 10 gives each code one meaning, and a check that reported a
+ * spelling problem for a field nobody wrote would be reading a string it does
+ * not have.
+ *
  * @param {Record<string, unknown>[]} values
- * @returns {string | null}
+ * @returns {{ reason_code: string, detail: string } | null}
  */
 function findUnreadableContentHash(values) {
   for (let index = 0; index < values.length; index += 1) {
     const field = readField(values[index], 'content_sha256', { kind: 'hex', hex_length: DIGEST_HEX / 2 }, `entry ${index + 1}`);
-    if (!field.ok) return `${field.detail} (${field.reason_code})`;
+    if (!field.ok) return field;
   }
   return null;
 }
