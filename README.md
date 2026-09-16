@@ -105,12 +105,25 @@ every check it cannot perform, which is a verdict of `INCOMPLETE`, never a pass.
 ```
 node vectors/run.js     # replay 54 artifacts against 54 recorded answers
 npm test                # the 111 tests, through node --test
+npm run kit:python      # the same 54 answers, through a second implementation
+npm run test:python     # 90 Python tests, including that replay
 ```
 
 `vectors/run.js` is written for a reader, not for the author: it reads
 `vectors/expected.json`, reads the artifacts the record names, and asks the
 verifier for a verdict. If the bytes on disk are not the bytes the record
 describes, it says so instead of quietly agreeing.
+
+`implementations/python/` is a second reading of the same spec, in Python, by a
+reader who did not read `verifier/**` — no shared code and no shared crypto
+library, canonical JSON and the ZIP walk and the Ed25519 arithmetic written out
+again — and it replays the same 54 answers. Agreement between two readings is the
+only evidence about a format that is not also evidence about one program; where
+they disagreed, the spec was wrong or silent, and it was amended. What that found
+is written down in
+[`implementations/python/README.md`](implementations/python/README.md), and the
+amendments are section 5, section 7, section 10.1, section 12.1 and section 16 of
+[`SPEC.md`](SPEC.md).
 
 28 of those 54 artifacts are the **adversarial pass**: every way a file can lie
 that we could think of, written down in [`test/adversarial.md`](test/adversarial.md)
@@ -178,6 +191,7 @@ can decide from the artifact alone, and they are printed rather than guessed at.
 | `producer/` | the reference implementation: writes the format, reads a file's claims, cites one. No clock, no disk, one `node:` import (`node:crypto`, for keys) |
 | `cli/charter.js` | the only file in the project that reads or writes a file, and the only place a verdict or a refusal becomes text |
 | `vectors/` | the conformance kit: an independent builder, 54 artifacts, the recorded answers, and the replay |
+| `implementations/python/` | a second reading of the spec: a Python verifier with no shared code, no shared crypto and its own replay of the same 54 answers, plus what the exercise found |
 | `test/` | 111 tests, including `purity.test.js` (the verifier stays pure, and the serializer shares no code with the parser), `parser.fuzz.test.js` (no input throws), `canonical.roundtrip.test.js` (every committed artifact is a fixed point of the reader and the serializer, both directions), `adversarial.test.js` (the table in `adversarial.md` is a claim the tests check), and `producer.test.js` (seal, then verify, then every way a sealed file can be made to lie). `test/corpus.js` is not a test file: it is the hostile-text corpus both fuzz suites are stated over, so `node --test` lists it and finds nothing in it. |
 | `NAMING.md` | what the words in this project mean, and which ones are avoided |
 
@@ -188,6 +202,8 @@ npm test          # node --test: discovers test/*.test.js and runs all 111
 npm run kit       # replay the conformance kit
 npm run kit:build # rebuild the kit's artifacts (the author's program)
 npm run seal      # the producer's verbs: seal, inspect, cite, keygen
+npm run kit:python  # replay the same kit with the Python verifier
+npm run test:python # the Python port's 90 tests
 ```
 
 `vectors/build.js` shares no code with `verifier/**`. It writes the canonical

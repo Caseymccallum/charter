@@ -37,7 +37,10 @@ A `.charter` file is a ZIP archive. It holds exactly three entries:
 
 Those names, in that set, and nothing else. `L0.ZIP.ENTRY_SET` reports a missing
 entry, a duplicate name, or an extra entry, in that order of severity, and stops
-at the first of the three.
+at the first of the three. A name that appears twice is refused, and the checks
+that follow read the copy whose local header comes first in the file: the artifact
+is broken either way, and the bytes a verdict is about should be the bytes the
+file states first rather than the bytes a directory happened to end on.
 
 ZIP is the container because it is the one container every operating system can
 open without a library, which means a reader who does not trust this verifier
@@ -183,8 +186,11 @@ three deliberate differences:
 
 1. **Integers only.** An integer is written `0`, or `-?[1-9][0-9]*`, and must
    round-trip through a 53-bit integer. `1.0`, `1e0`, `-0`, `01` and
-   `9007199254740993` are each a violation: the first three are reported as
-   NON_INTEGER_NUMBER, the last as NUMBER_OUT_OF_RANGE.
+   `9007199254740993` are each a violation: the first four are reported as
+   NON_INTEGER_NUMBER, the last as NUMBER_OUT_OF_RANGE. A leading zero is a
+   second spelling of an integer rather than a different integer — `String(01)`
+   is `"1"`, which is why it belongs to the family whose reason code says the
+   value is not the number a reader would write.
 2. **Keys sorted by code point.** RFC 8785 sorts by UTF-16 code unit. The two
    orders disagree above U+FFFF, so this format says code point and means it.
 3. **A file is one canonical value followed by exactly one LF.** RFC 8785 has
@@ -264,21 +270,50 @@ One canonical JSON object, one LF, and no other field than these six:
 
 | Field | Requirement | Check |
 | --- | --- | --- |
-| `format` | exactly `"charter/0.1"` | `L0.MANIFEST.FORMAT` |
+| `format` | present, a string, and exactly `"charter/0.1"` | `L0.FORMAT.IDENTIFIER` |
 | `title` | a non-empty string | `L0.MANIFEST.FIELDS` |
 | `created_at` | ISO 8601 UTC at second precision, `YYYY-MM-DDTHH:MM:SSZ` | `L0.MANIFEST.FIELDS` |
-| `content` | an object whose only field is `sha256`, 64 lowercase hex characters | `L0.MANIFEST.FIELDS` |
-| `author` | an object with exactly `name`, `algorithm`, `key_id`, `public_key` | `L0.MANIFEST.FIELDS` |
-| `signature` | unpadded base64url, decoding to 64 bytes | `L0.MANIFEST.FIELDS` |
+| `content` | an object whose only field is `sha256`, a string | `L0.MANIFEST.FIELDS` |
+| `author` | an object with exactly `name`, `algorithm`, `key_id`, `public_key`, each a non-empty string | `L0.MANIFEST.FIELDS` |
+| `signature` | unpadded base64url, decoding to 64 bytes | `L1.MANIFEST.SIGNATURE` |
+
+**A field's spelling belongs to the check that reads it.** `L0.MANIFEST.FIELDS`
+answers whether the fields are present and whether each holds the JSON value the
+table names, and nothing more: an uppercase digest, a key that is not 32 bytes
+and a signature written with `=` all pass it. The checks that *read* those values
+report what is wrong with the encoding:
+
+| Value | Check | A value that does not decode, or has the wrong length | A second spelling of the same bytes |
+| --- | --- | --- | --- |
+| `content.sha256` | `L0.CONTENT.HASH`, `L2.CHAIN.HEAD_MATCHES_CONTENT` | MALFORMED | NON_CANONICAL_ENCODING |
+| `author.public_key` | `L1.MANIFEST.KEY_ID` | MALFORMED | NON_CANONICAL_ENCODING |
+| `signature` | `L1.MANIFEST.SIGNATURE` | MALFORMED | NON_CANONICAL_ENCODING |
+
+The distinction is the difference between a value that is not the value and a
+value that is the same value spelled a second way. `0097e5…` and `0097E5…` are
+not two digests, they are one digest and one file that would be a second file:
+canonical hex has lowercase digits, canonical base64url has no padding and no
+trailing bit pattern that is not zero, and NON_CANONICAL_ENCODING is the reason
+code for accepting either. `L1.MANIFEST.KEY_ID` and `L1.MANIFEST.SIGNATURE` are
+also where an unusable key is reported, which is why the checks that depend on
+the key are skipped when it says so: an entry's author can be compared with a key
+identity, and there is none.
 
 `L0.MANIFEST.CANONICAL` compares the bytes on disk against the canonical bytes
 for the object they parse to, followed by one LF. A file that parses and is not
 canonical is refused; a file whose fields are well formed but unusual is not,
 which is the whole difference between syntax and semantics in this format.
 
-`format` is checked before anything else, and a value this verifier does not
-implement produces UNSUPPORTED and stops the manifest checks. Applying the rules
-of charter/0.1 to a file that declares charter/0.2 would be inventing a verdict.
+`format` is checked before anything else, and it is checked by
+`L0.FORMAT.IDENTIFIER` rather than by `L0.MANIFEST.FIELDS`, because a check that
+runs before the fields can be read is the check that has to report a field that
+is not there: a `format` that is absent is MISSING, one that is not a string is
+MALFORMED, and a value this verifier does not implement produces UNSUPPORTED and
+stops the manifest checks. Stops means the checks after it are SKIP, with reason
+UNSUPPORTED_VERSION rather than PREREQUISITE_FAILED, so that a reader can tell
+"nobody read the rules for this version" from "the rules were read and something
+in them broke". Applying the rules of charter/0.1 to a file that declares
+charter/0.2 would be inventing a verdict.
 
 `created_at` is validated by arithmetic, not by `Date`: the date is parsed by
 hand, February gets 29 days in a leap year, and hours, minutes and seconds are
@@ -325,10 +360,17 @@ each object carrying exactly these seven fields:
 | `timestamp` | ISO 8601 UTC at second precision, as in the manifest |
 | `action` | `"create"` or `"edit"`, and nothing else |
 | `summary` | a non-empty string, written for a human |
-| `author` | an object with exactly `name` and `key_id` |
+| `author` | an object with exactly `name` and `key_id`, each a non-empty string |
 | `parent` | 64 lowercase hex characters, or `null` |
 | `content_sha256` | 64 lowercase hex characters |
 | `signature` | unpadded base64url, decoding to 64 bytes |
+
+As in the manifest, `L0.PROVENANCE.FIELDS` answers whether the seven fields are
+present and hold the JSON values the table names, and the spelling of a value is
+the business of the check that reads it: `L0.PROVENANCE.CONTENT_HASH_FORMAT` for
+`content_sha256`, `L2.CHAIN.LINKS` for `parent`, and `L1.PROVENANCE.SIGNATURES`
+for the signature. A value that does not decode, or that is the wrong length, is
+MALFORMED; a second spelling of the same bytes is NON_CANONICAL_ENCODING.
 
 The file is read as **bytes** and split on `0x0A` before any line is decoded.
 A verifier that read it through a text decoder would have already lost its
@@ -339,7 +381,9 @@ an empty line, and on any line that is not a JSON object.
 
 "At least one entry" is its own check, `L0.PROVENANCE.NONEMPTY`. A log with no
 entries is not a malformed file, it is a file that records nothing, and a reader
-deserves to be told which of the two happened.
+deserves to be told which of the two happened. The check counts *entries*, not
+lines: a file whose one line is `[1,2]` is a file with no entries, so PARSE
+reports the line and NONEMPTY is SKIP rather than PASS.
 
 ## 8. Keys and key ids
 
@@ -453,7 +497,7 @@ The 30 checks, in the order they always appear in a verdict:
 | L0 | `L0.FORMAT.IDENTIFIER` | `manifest.format` is exactly `"charter/0.1"` |
 | L0 | `L0.MANIFEST.PARSE` | one well-formed JSON object |
 | L0 | `L0.MANIFEST.CANONICAL` | the bytes are the canonical form plus one LF |
-| L0 | `L0.MANIFEST.FIELDS` | the six fields, correctly typed and encoded |
+| L0 | `L0.MANIFEST.FIELDS` | the required fields, present and correctly typed |
 | L0 | `L0.MANIFEST.EXTRA_FIELDS` | no field this version has no rule for |
 | L0 | `L0.CONTENT.UTF8` | valid UTF-8, no byte order mark |
 | L0 | `L0.CONTENT.HASH` | the digest of the content matches the manifest |
@@ -477,6 +521,45 @@ so two verdicts can be compared line by line and two runs over one artifact are
 byte-identical. Prose is not the interface; the ids, statuses and reason codes
 are, and a check that tried to report an id outside this registry would be
 refused before it could.
+
+### 10.1 What a check depends on
+
+A SKIP is a fact about the reader, not about the file, so the number of checks a
+verdict never reached is part of the recorded conformance answers and has to be
+the same in every implementation. That makes the dependency graph below part of
+the format. It is stated here rather than left to be inferred from the order of
+the registry, because a check may depend on one that is reported *before* it
+(`L0.FORMAT.IDENTIFIER` is reported before `L0.MANIFEST.PARSE` and cannot run
+until the manifest has been read) as well as on one after it.
+
+| A check that does not pass | What is skipped because of it |
+| --- | --- |
+| any check at all, because `L0.ZIP.READABLE` failed | every other check: there is no container to read |
+| `L0.ZIP.ENTRY_SET` (MISSING only) | every check that reads the entry that is absent |
+| `L0.ZIP.ENTRY_DATA` | `L0.ZIP.SIZES`, `L0.ZIP.CRC32`, and every check that reads an entry whose bytes did not decode |
+| `L0.MANIFEST.PARSE` | `L0.FORMAT.IDENTIFIER`, the other manifest checks, and every check that needs a manifest value |
+| `L0.FORMAT.IDENTIFIER` | everything from `L0.MANIFEST.CANONICAL` onward, with reason UNSUPPORTED_VERSION |
+| `L0.MANIFEST.FIELDS` | the manifest's key, signature and digest consumers, and the chain's head check |
+| `L0.PROVENANCE.PARSE` | the other log checks, the two checks that read an entry's key, and the chain |
+| `L0.PROVENANCE.FIELDS` | the log's key, signature, chain and head checks |
+| `L0.PROVENANCE.NONEMPTY` | `L1.PROVENANCE.FIRST_AUTHOR`, `L2.CHAIN.FIRST_PARENT_NULL`, `L2.CHAIN.HEAD_MATCHES_CONTENT`: the three that name *the first* or *the last* entry |
+| `L1.MANIFEST.KEY_ID`, when the key does not decode or is the wrong length | `L1.PROVENANCE.FIRST_AUTHOR`, `L1.PROVENANCE.KEYS`, `L1.PROVENANCE.SIGNATURES` |
+
+Two rules make the graph answerable rather than approximate:
+
+- **The check that owns a fact reports it, and everyone else is SKIP.** A fact
+  computed once is reported once. `L0.MANIFEST.FIELDS` does not also fail when
+  the signature is one byte short; `L0.CONTENT.HASH` does not also fail when the
+  container's CRC-32 is wrong.
+- **A skipped check carries PREREQUISITE_FAILED, unless the version gate stopped
+  it.** The one exception is the reason a reader most needs to distinguish:
+  checks stopped because the artifact declares a format this verifier does not
+  implement carry UNSUPPORTED_VERSION.
+
+A check that is *itself* the owner does not skip: a signature that cannot be
+verified because the file's key is not a key is a FAIL with the reason the key
+carries, not an absence of an answer. An absence of an answer is for the checks
+that were never asked.
 
 ## 11. What this does not protect against
 
@@ -542,6 +625,35 @@ node cli/charter.js verify path/to/file.charter --json # the verdict as JSON, an
 consume. The human form prints the verdict, the failing and unsupported checks
 with their reason codes and prose, the caveats of section 11, and a count of the
 checks that were not reached.
+
+### 12.1 The JSON form
+
+The shape a script consumes is part of the interface, because two implementations
+that print the same words in different keys are two formats wearing one name. One
+JSON object, with these keys:
+
+| Key | Value |
+| --- | --- |
+| `file` | the path as it was named on the command line, unmodified |
+| `bytes` | the size of the file |
+| `verdict` | one of the three verdicts |
+| `exit_code` | the code the process exits with |
+| `summary` | `pass`, `fail`, `unsupported`, `skip`, `total`: five integers, and `total` is always 30 |
+| `artifact` | what the file claims, or `null` |
+| `checks` | all 30, in registry order, each `id`, `level`, `status`, `reason_code`, `detail`, `requirement` |
+| `limitations` | the statements of section 11, each `id` and `statement` |
+
+`artifact` is an object with `format`, `title`, `created_at`, `author_name`,
+`author_key_id`, `entries` and `head_content_sha256` — and it is `null` exactly
+when the file does not claim that much: when there is no container to read, when
+`manifest.json` is absent or its bytes do not decode, when the manifest does not
+parse, when its fields are not well formed, or when it declares a format this
+verifier does not implement. `entries` is the number of entries the log holds, or
+`0` when the log cannot be read that far, and `head_content_sha256` is the digest
+the *manifest* declares for the content — the claim, not a measurement of it.
+
+`detail` and `requirement` are prose and may be reworded; every other value here
+is part of the recorded answers and may not be.
 
 The commands that write and describe files are the producer's:
 
@@ -795,4 +907,30 @@ output path that is already taken (`EXTRA`), a value above a limit of section 3.
 (`MALFORMED`). A producer with a private set of failure names would be a second
 vocabulary for one format, and a caller who had to learn both would eventually
 confuse them.
+
+## 16. A second reading
+
+`implementations/python/` is a verifier for this document written in Python by a
+reader who did not read `verifier/**`. It shares no code and no crypto library
+with the reference: the canonical JSON rules, the container walk, the field
+rules, the chain and the Ed25519 arithmetic are its own, and its kit replay
+refuses to call itself clean if it opens a file under `verifier/`.
+
+It exists because agreement is the only evidence a format has. Two copies of one
+implementation agree about everything, including their mistakes; two
+implementations written apart agree only about the rules they both read, and
+every place they disagree is a place where this document was not yet a
+document — either because it was silent, or because it said something the code
+did not do. Writing it found eight such places, and this document now says what
+was decided in each: which check owns a field's *spelling* (§5, §7), that
+`format` belongs to the check that runs before the fields (§5), that a leading
+zero is a NON_INTEGER_NUMBER (§4.1), that `L0.PROVENANCE.NONEMPTY` counts
+entries and not lines (§7), which of two copies of a duplicated name is read
+(§3), the dependency graph and the reason a skip carries (§10.1), and the shape
+of the JSON verdict (§12.1).
+
+The kit is what both readings answer to. `vectors/expected.json` records the
+answers, `vectors/run.js` replays them through the reference, and
+`implementations/python` replays them through the port; 54 fixtures, the same
+verdicts, the same reason codes, the same exit codes.
 

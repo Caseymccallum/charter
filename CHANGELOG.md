@@ -4,6 +4,92 @@ Recorded because they are decisions about published behaviour, not internal
 tidying. The format identifier in `manifest.format` changes when section 14 of
 [SPEC.md](SPEC.md) changes; this file records what changed, when, and why.
 
+## Unreleased — charter/0.1, a second reading
+
+The format is unchanged, and so is every recorded answer: the 54 verdicts in
+`vectors/expected.json` are the ones they were, `verifier/**` is untouched, and
+`node vectors/run.js` still replays 54 of 54. What was added is
+`implementations/python/`, a verifier for the same spec written in Python by a
+reader who did not read `verifier/**`, and the amendments below, which are what
+writing it found. A specification read twice is either a specification or a
+description of one program; these are the places it turned out to be the second.
+
+### A second implementation, with nothing shared
+
+`implementations/python/charter_verify/` implements canonical JSON in both
+directions, the ZIP walk, the manifest and log field rules, the provenance chain,
+the check semantics, and Ed25519 itself — RFC 8032 in pure Python, so that not
+even the crypto library is a shared dependency. It replays the same kit through
+its own comparison, and its replay installs an audit hook that fails the run if a
+file under `verifier/` is ever opened. The first run scored 54 of 54.
+
+### The spelling of a value was on the wrong check
+
+Section 5's table gave `L0.MANIFEST.FIELDS` the jobs of "64 lowercase hex
+characters", "unpadded base64url" and "decoding to 64 bytes". The kit had already
+recorded the counter-example: `manifest-signature-truncated` expects exactly one
+failure, on `L1.MANIFEST.SIGNATURE`, with no check skipped — impossible for a
+verifier that measures the signature in FIELDS, because FIELDS would fail first
+and everything downstream would be skipped after it. The rules now sit where the
+values are read: `L0.CONTENT.HASH` and `L2.CHAIN.HEAD_MATCHES_CONTENT` for
+`content.sha256`, `L0.PROVENANCE.CONTENT_HASH_FORMAT` for a log digest,
+`L1.MANIFEST.KEY_ID` for the public key, `L1.MANIFEST.SIGNATURE` and
+`L1.PROVENANCE.SIGNATURES` for the signatures. MALFORMED means a value that does
+not decode or has the wrong length; NON_CANONICAL_ENCODING means the same bytes
+spelled a second way, and now has a rule that produces it — an uppercase digest,
+`=` padding, a base64url tail whose trailing bits are not zero. Until this pass,
+`NON_CANONICAL_ENCODING` was in the vocabulary of section 10 and in no rule at
+all, which this document's own first paragraph does not allow.
+
+### `format` belongs to the check that runs before the fields
+
+`L0.FORMAT.IDENTIFIER` reports a `format` that is absent as MISSING and one that
+is not a string as MALFORMED, and `L0.MANIFEST.FIELDS` no longer owns the field.
+The two readings disagreed about this, and about nothing else that a fixture
+covers; the spec now says which one is the format. Section 5 also named the
+check `L0.MANIFEST.FORMAT`, which was never one of the 30 ids in section 10's
+registry: the table was written before the registry and not updated.
+
+### What a check depends on is part of the format
+
+`vectors/expected.json` records the number of checks each artifact never reached,
+so the prerequisite graph is a published fact rather than an implementation
+detail, and section 10.1 now states it: which check owns a failure, what is
+skipped because of it, and the one place where a skip carries a reason other than
+PREREQUISITE_FAILED — after the version gate, where it carries
+UNSUPPORTED_VERSION, so that "nobody read the rules for this version" stays
+distinguishable from "the rules were read and something in them broke". Two edges
+of that graph run backwards in the registry order, which is why the prose needed
+a table rather than an inference.
+
+### Three smaller decisions, and the shape of the verdict
+
+`01` is a NON_INTEGER_NUMBER, with `1.0`, `1e0` and `-0`; section 4.1 had listed
+five violations and named the reason for four. `L0.PROVENANCE.NONEMPTY` counts
+entries rather than lines, so a log whose only line is `[1,2]` has none and the
+line is PARSE's complaint. A name that appears twice is refused, and the checks
+that follow read the copy whose local header comes first in the file. And section
+12.1 writes down the shape of `--json` — the keys, the five `summary` counts, and
+when `artifact` is `null` — which the reference CLI had been defining by example.
+
+### The JSON sort was not the trap the brief expected
+
+`json.dumps(sort_keys=True)` sorts with Python's own string comparison, which is
+by code point, so the U+1F600-versus-U+FFFF case from the reference's fuzz corpus
+agrees with section 4 in Python by accident of the type system rather than by
+reading the rule. `ensure_ascii` and `separators` are wrong by default and are
+still traps; the sort is not one, and the port's tests say so instead of asserting
+a bite that never came.
+
+### What the exercise found, in one place
+
+`implementations/python/README.md`. It records the kit result, the six places
+the spec was silent, the two places it contradicted itself, the four guesses no
+fixture reaches, and the answer to the question the exercise was built to ask:
+the 54 artifacts and their recorded answers are sufficient on their own — the
+reference implementation's source was never read, and `git diff -- verifier/` is
+0 lines.
+
 ## Unreleased — charter/0.1, the producer
 
 The format is unchanged. `producer/**` and four verbs were added, and the

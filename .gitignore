@@ -5,5 +5,10 @@ Thumbs.db
 *.tmp
 *.local
 
+# The Python verifier's compiled bytecode. Not source, not the kit, and not
+# recorded: a .pyc is a function of the interpreter that wrote it.
+__pycache__/
+*.pyc
+
 # vectors/out/ is committed on purpose: the artifacts are the kit. A record of
 # files nobody has is not a record, so these are not ignored.

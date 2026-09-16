@@ -13,6 +13,8 @@
   },
   "scripts": {
     "test": "node --test",
+    "test:python": "cd implementations/python && python -m unittest discover",
+    "kit:python": "cd implementations/python && python -m charter_verify.kit",
     "verify": "node cli/charter.js verify",
     "seal": "node cli/charter.js seal",
     "inspect": "node cli/charter.js inspect",
