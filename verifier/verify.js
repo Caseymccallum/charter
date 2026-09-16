@@ -18,7 +18,7 @@
 
 import { bytesEqual, concat, fromHexLower, toHex, utf8Decode } from './bytes.js';
 import { CAVEATS } from './caveats.js';
-import { canonicalBytes, LF, parseJsonText } from './canonical.js';
+import { canonicalBytes, LF, parseJsonBytes } from './canonical.js';
 import { decodeBase64Url } from './base64url.js';
 import { sha256, verifySignature } from './digest.js';
 import { LIMITS } from './limits.js';
@@ -59,7 +59,7 @@ export async function verify(bytes, options = {}) {
     return finalize(reporter, state);
   }
   await examineEntries(reporter, state, limits);
-  const formatGate = examineManifest(reporter, state);
+  const formatGate = examineManifest(reporter, state, limits);
   if (formatGate !== null) {
     skipFormatDependents(reporter, formatGate.detail, formatGate.reason_code);
     return finalize(reporter, state);
@@ -120,10 +120,11 @@ function finalize(reporter, state) {
  *
  * @param {Reporter} reporter
  * @param {Record<string, any>} state
+ * @param {typeof LIMITS} limits
  * @returns {{ detail: string, reason_code: string } | null} the reason the rest
  * of the artifact must not be judged, or `null` when it must be
  */
-function examineManifest(reporter, state) {
+function examineManifest(reporter, state, limits) {
   const held = state.files.get(ENTRY_MANIFEST);
   if (held === undefined) {
     reporter.skip('L0.MANIFEST.PARSE', 'manifest.json could not be read out of the archive, so its bytes were never parsed');
@@ -132,15 +133,10 @@ function examineManifest(reporter, state) {
   }
   const bytes = held.read.data;
   state.manifestBytes = bytes;
-  const decoded = utf8Decode(bytes);
-  if (!decoded.ok) {
-    reporter.fail('L0.MANIFEST.PARSE', REASON.DECODE_ERROR, 'manifest.json is not valid UTF-8');
-    skipManifestDependents(reporter, 'manifest.json could not be decoded, so nothing that depends on it could be examined');
-    return null;
-  }
-  const parsed = parseJsonText(decoded.text);
+  const parsed = parseJsonBytes(bytes, { limits });
   if (!parsed.ok) {
-    reporter.fail('L0.MANIFEST.PARSE', parsed.reason_code, parsed.detail);
+    const detail = parsed.reason_code === REASON.DECODE_ERROR ? 'manifest.json is not valid UTF-8' : parsed.detail;
+    reporter.fail('L0.MANIFEST.PARSE', parsed.reason_code, detail);
     skipManifestDependents(reporter, 'manifest.json could not be parsed, so nothing that depends on it could be examined');
     return null;
   }

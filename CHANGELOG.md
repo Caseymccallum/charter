@@ -45,3 +45,50 @@ Verified on the floor itself: `node --test` (no path, so the runner's own
 discovery is under test) reports 47 tests passing, and `node vectors/run.js`
 replays 26 cases with no mismatch.
 
+### Limits: a ceiling for one JSON document
+
+`manifest.json` was bounded only by the 64 MiB entry limit, which bounds memory
+but not work: a 64 MiB manifest is a manifest no reader wants and every reader
+must parse. SPEC.md section 3.7 now declares a ceiling of 1 MiB for one JSON
+document — the manifest, or one line of `provenance.jsonl`, which already had
+the same number under another name — and `verifier/canonical.js` enforces it
+before decoding, so an oversize document is refused with `LIMIT_EXCEEDED` rather
+than parsed slowly. `verifier/limits.js` says why every ceiling is checked
+before the work it bounds rather than after.
+
+### The parser: one defect found and fixed
+
+`verifier/canonical.js` is now documented by its shape, because it is the most
+load-bearing component in the project: a single recursive-descent scan that
+validates while it reads, records the first violation, and stops. There is no
+token stream and no second pass.
+
+Writing the fuzz cases against SPEC.md section 4 found a defect. The parser
+tolerated whitespace around the document and between the members of an object,
+and not after a colon or a comma. So a pretty-printed manifest was refused as
+`MALFORMED` at `L0.MANIFEST.PARSE`, while section 4 promises that whitespace and
+key order are tolerated *while parsing* so that a violation can be reported as
+"well-formed JSON, but not the canonical bytes for it" (`NON_CANONICAL`, at
+`L0.MANIFEST.CANONICAL` or `L0.PROVENANCE.CANONICAL`). Two checks with different
+meanings were answering the same question, and the one that answered was the
+wrong one. The parser now skips whitespace before every value, and
+`test/parser.fuzz.test.js` pins the behaviour in every position.
+
+### A fuzz suite, and the property above it
+
+`test/parser.fuzz.test.js` covers the cases the parser has to get right and no
+reader would notice it getting wrong: duplicate keys by name (`DUPLICATE`, not
+`NON_CANONICAL`), floats in every position (`1.0`, `1e2`, `1E2`, `1e+2`, `-0.0`,
+`0.5`, `1.`, `.1` — refused, never coerced), unpaired surrogate escapes, key
+ordering by code point rather than UTF-16 code unit (the case no English fixture
+can catch: `U+1F600` sorts *after* `U+FFFF` by code point and *before* it by
+UTF-16), whitespace in every position with exactly one LF required, depth at the
+ceiling where 200,000 levels of nesting is a refusal rather than a `RangeError`,
+and the byte ceiling for one document.
+
+Above every individual case is the property the whole verifier answers to: **no
+input, valid or hostile, throws.** The file ends by feeding a corpus of hostile
+text to the parser and a corpus of hostile bytes to `verify()`, including a
+declared limit of one byte, and requires a verdict with a status and a reason
+code from the declared vocabulary every time.
+

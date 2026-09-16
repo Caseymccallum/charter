@@ -74,9 +74,14 @@ test('depth is limited', () => {
   assert.deepEqual(parseJsonText('[[1]]', 2), { ok: true, value: [[1]] });
 });
 
-test('whitespace around the document is tolerated; whitespace inside it is not canonical', () => {
+test('whitespace between tokens is tolerated; only the canonical bytes are canonical', () => {
   assert.deepEqual(parseJsonText('  [1,2]  '), { ok: true, value: [1, 2] });
-  assert.equal(parseJsonText('{ "a" : 1 }').ok, false);
+  // Well-formed JSON in another spelling parses, and the bytes are what decides
+  // (L0.MANIFEST.CANONICAL / L0.PROVENANCE.CANONICAL), which is the difference
+  // between a refusal a stranger can act on and a bare syntax error.
+  const spaced = parseJsonText('{ "a" : 1 , "b" : [ 1 , 2 ] }');
+  assert.equal(spaced.ok, true);
+  assert.equal(serializeCanonical(spaced.value), '{"a":1,"b":[1,2]}');
 });
 
 test('keys are ordered by code point, not by UTF-16 code unit', () => {

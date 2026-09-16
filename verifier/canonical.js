@@ -1,6 +1,22 @@
 /**
  * Canonical JSON, and nothing else.
  *
+ * # The shape of the parser
+ *
+ * A single recursive-descent scan that validates as it reads. There is no
+ * token stream, no parse tree kept alongside a separate validation pass, and no
+ * second opinion: `Cursor` holds the whole text, a position, the depth ceiling,
+ * and a `violation` slot, and `parseValue` dispatches on the leading character.
+ * `parseObject` and `parseArray` build their value as they descend and return
+ * `undefined` the moment a violation is recorded, so the first violation is
+ * both the recorded one and the only one reported — every later finding would be
+ * a consequence of it. Numbers are scanned by character class and then tested
+ * against `^(?:0|-?[1-9][0-9]*)$`, so a float is refused by name and never
+ * rounded into an integer. Strings are scanned one UTF-16 unit at a time, with
+ * `\uXXXX` surrogate pairing handled inline, because an unpaired surrogate
+ * escape has to be refused before it becomes a string that cannot survive
+ * UTF-8.
+ *
  * The parser here is not JSON.parse. It has to be stricter in three ways that
  * matter for a signed format, and a tree-walking implementation is the only
  * way to see all three:
@@ -11,6 +27,11 @@
  *      three byte sequences for one value;
  *   3. escapes must not encode unpaired surrogates, because those do not
  *      survive a round trip through UTF-8.
+ *
+ * Failed input never throws. Depth is refused at the ceiling *before* the next
+ * level is entered, so recursion is bounded by the ceiling rather than by the
+ * input, and an input that nests a hundred thousand deep returns a refusal
+ * instead of exhausting the stack.
  *
  * Whitespace and key order are tolerated while parsing so that the caller can
  * say "this is well-formed JSON but not the canonical bytes for it" rather
@@ -25,7 +46,7 @@
  * @module verifier/canonical
  */
 
-import { concat, utf8Encode } from './bytes.js';
+import { concat, utf8Decode, utf8Encode } from './bytes.js';
 import { LIMITS } from './limits.js';
 import { REASON } from './status.js';
 
@@ -222,6 +243,7 @@ class Cursor {
         return undefined;
       }
       this.at += 1;
+      this.skipWhitespace();
       const value = this.parseValue(depth + 1);
       if (value === undefined) return undefined;
       object[key] = value;
@@ -250,6 +272,7 @@ class Cursor {
       return items;
     }
     for (;;) {
+      this.skipWhitespace();
       const value = this.parseValue(depth + 1);
       if (value === undefined) return undefined;
       items.push(value);
@@ -291,6 +314,36 @@ export function parseJsonText(text, maxDepth = LIMITS.MAX_JSON_DEPTH) {
     return { ok: false, reason_code: REASON.MALFORMED, detail: `content follows the top-level value at index ${cursor.at}` };
   }
   return { ok: true, value };
+}
+
+/**
+ * Parse one canonical JSON document from the bytes a container held.
+ *
+ * The ceiling is checked before the bytes are decoded, so an oversize document
+ * costs a length comparison rather than a decode, a parse, and whatever the
+ * caller would have done with the result. Refusing early is the whole point of
+ * a declared limit: a document too large to check is not a document this
+ * verifier has checked, and saying so is not the same as saying it is fine.
+ *
+ * @param {Uint8Array} bytes
+ * @param {{ limits?: typeof LIMITS, maxDepth?: number, maxBytes?: number }} [options]
+ * @returns {{ ok: true, value: unknown } | { ok: false, reason_code: string, detail: string }}
+ */
+export function parseJsonBytes(bytes, options = {}) {
+  const limits = options.limits ?? LIMITS;
+  const maxBytes = options.maxBytes ?? limits.MAX_JSON_DOCUMENT_BYTES;
+  if (bytes.length > maxBytes) {
+    return {
+      ok: false,
+      reason_code: REASON.LIMIT_EXCEEDED,
+      detail: `the document is ${bytes.length} bytes, above the declared limit of ${maxBytes} bytes for one JSON document`,
+    };
+  }
+  const decoded = utf8Decode(bytes);
+  if (!decoded.ok) {
+    return { ok: false, reason_code: REASON.DECODE_ERROR, detail: 'the bytes are not valid UTF-8' };
+  }
+  return parseJsonText(decoded.text, options.maxDepth ?? limits.MAX_JSON_DEPTH);
 }
 
 /** Escapes that have a short form. Every other character is written literally, or as `\uXXXX` if it is a control character. */

@@ -25,6 +25,12 @@ export const LIMITS = Object.freeze({
   MAX_PROVENANCE_ENTRIES: 100000,
   /** Bytes of one provenance line. */
   MAX_PROVENANCE_LINE_BYTES: 1024 * 1024,
+  /**
+   * Bytes of one JSON document: `manifest.json`. A line of `provenance.jsonl`
+   * is bounded by MAX_PROVENANCE_LINE_BYTES above, which is the same number, so
+   * one document and one line are held to one ceiling.
+   */
+  MAX_JSON_DOCUMENT_BYTES: 1024 * 1024,
   /** Nesting depth of any accepted JSON value. */
   MAX_JSON_DEPTH: 64,
   /** Length of a ZIP entry name, per the ZIP specification. */

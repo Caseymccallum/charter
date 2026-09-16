@@ -149,6 +149,7 @@ of these is a refusal with reason `LIMIT_EXCEEDED`, never a slow pass.
 | One entry, declared uncompressed (inflation stops past it) | 64 MiB |
 | Entries in `provenance.jsonl` | 100,000 |
 | Bytes of one provenance line | 1 MiB |
+| Bytes of one JSON document (`manifest.json`) | 1 MiB |
 | JSON nesting depth | 64 |
 | ZIP entry name length | 65,535 bytes |
 | End-of-central-directory search range | 65,535 bytes |
@@ -156,6 +157,14 @@ of these is a refusal with reason `LIMIT_EXCEEDED`, never a slow pass.
 These numbers are part of the published behaviour of charter/0.1. Changing one
 changes what a verdict means, so the change belongs in this document and in the
 recorded conformance answers, not in a patch.
+
+A limit is checked before the work it bounds, not after: the container's size is
+compared before the archive is walked, an entry's declared size is compared
+before it is inflated, and a JSON document's length is compared before it is
+decoded or parsed. An input above a ceiling is refused with `LIMIT_EXCEEDED`,
+which is a `FAIL` and therefore `BROKEN` — the artifact is not called unproven,
+because a file that is too large to check is a file this verifier has not
+checked.
 
 ## 4. Canonical JSON
 
