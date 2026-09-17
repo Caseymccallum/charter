@@ -128,6 +128,7 @@
           <h3>content.md</h3>
           <div id="content"></div>
           <p class="note" id="content-note"></p>
+          <p><button type="button" class="secondary" id="save-content" hidden>Save the document</button></p>
           <h3>provenance.jsonl</h3>
           <table>
             <thead>
@@ -146,10 +147,12 @@
       </section>
 
       <section class="panel">
-        <h2>Seal a document</h2>
+        <h2>Seal a document, or append to the one above</h2>
         <p class="note">
-          Write mode seals a new file: one entry, action <code>create</code>, signed with a key you supply here.
-          charter/0.1 has no verb for appending to a history, and neither does the command line.
+          <strong>Seal and download</strong> writes a new file: one entry, action <code>create</code>, signed with a
+          key you supply here. <strong>Append a revision</strong> adds one entry to the file that is open, signed
+          with the key it carries — what <code>charter edit</code> does (SPEC.md 15.6). Every entry of a file names
+          the one key it carries, so a second key is refused rather than added.
         </p>
         <p class="note" id="w-seeded"></p>
         <fieldset>
@@ -175,7 +178,7 @@
           <input type="text" id="w-title" placeholder="What this document is called">
           <label for="w-author">author name</label>
           <input type="text" id="w-author">
-          <label for="w-summary">first entry summary</label>
+          <label for="w-summary">summary: the first entry's when sealing, this entry's when appending</label>
           <textarea id="w-summary" style="min-height:60px"></textarea>
           <p class="note">The command line derives a title from the document when none is stated (SPEC.md 15.3). This page does not derive one: it takes what you state.</p>
         </fieldset>
@@ -210,7 +213,10 @@
           </div>
           <p class="note" id="w-time-readout"></p>
         </fieldset>
-        <button type="button" id="seal">Seal and download</button>
+        <div class="row">
+          <button type="button" id="seal">Seal and download</button>
+          <button type="button" class="secondary" id="append">Append a revision</button>
+        </div>
         <p class="message" id="w-message"></p>
       </section>
     </div>

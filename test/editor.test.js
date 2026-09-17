@@ -908,6 +908,163 @@ test('the editor in a real browser', { timeout: 300000 }, async (t) => {
     assert.deepEqual(theirs.summary, reference.summary, 'the Python implementation disagrees about the counts');
   });
 
+  /**
+   * The next file the page offers, ignoring the ones already in the directory.
+   *
+   * A run makes several downloads and Chrome disambiguates a repeated name with a
+   * ` (1)` suffix, so "the only file here" is not "the file this step asked for".
+   * The caller passes the directory listing from before it clicked.
+   *
+   * @param {string[]} before
+   * @returns {Promise<string | null>}
+   */
+  async function downloadSince(before) {
+    for (let attempt = 0; attempt < 80; attempt += 1) {
+      const files = readdirSync(downloads).filter((name) => !name.endsWith('.crdownload') && !before.includes(name));
+      if (files.length > 0) return join(downloads, files[0]);
+      await new Promise((resolve) => setTimeout(resolve, 250));
+    }
+    return null;
+  }
+
+  await t.test('the document a pane shows can be saved, and it is what `charter open` writes', async () => {
+    const work = mkdtempSync(join(tmpdir(), 'charter-editor-open-'));
+    t.after(() => rmSync(work, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
+
+    await drop(browser, 'valid.charter', readFileSync(join(FIXTURES, 'out/valid.charter')));
+    const before = readdirSync(downloads);
+    const offered = await browser.evaluate(`(() => {
+      const button = document.getElementById('save-content');
+      const hidden = button.hidden;
+      button.click();
+      return { hidden, label: button.textContent };
+    })()`);
+    assert.equal(offered.hidden, false, 'a file with a readable content entry offers its document');
+    assert.equal(offered.label, 'Save the document');
+
+    const saved = await downloadSince(before);
+    assert.notEqual(saved, null, 'the page offered no document to download');
+
+    // The command line's `open` is the reference: two readers of one container,
+    // and the bytes they hand over have to be the same bytes.
+    const reference = join(work, 'opened.md');
+    const run = spawnSync(process.execPath, ['cli/charter.js', 'open', join(FIXTURES, 'out/valid.charter'), '-o', reference], { cwd: ROOT, encoding: 'utf8' });
+    assert.equal(run.status, 0, `charter open refused: ${run.stderr}`);
+    const mine = readFileSync(/** @type {string} */ (saved));
+    const theirs = readFileSync(reference);
+    assert.equal(mine.equals(theirs), true, `the page and the command line wrote different documents (${mine.length} against ${theirs.length} bytes)`);
+
+    // A file whose container cannot be read offers nothing to save, rather than an
+    // empty file: there is no content to hand over, and a button that produced one
+    // would be inventing a document.
+    const broke = await drop(browser, 'not-a-zip.charter', readFileSync(join(FIXTURES, 'out/not-a-zip.charter')));
+    assert.equal(broke.verdict, 'BROKEN');
+    const hidden = await browser.evaluate("document.getElementById('save-content').hidden");
+    assert.equal(hidden, true, 'a file whose container cannot be read offers no document to save');
+  });
+
+  await t.test('a revision appended in the page is the revision the command line writes', async () => {
+    const work = mkdtempSync(join(tmpdir(), 'charter-editor-append-'));
+    // This directory holds private keys, so it must not outlive the test.
+    t.after(() => rmSync(work, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
+    const key = await generateKeyPair();
+    const keyPath = join(work, 'key.pem');
+    writeFileSync(keyPath, key.private_pem);
+    const base = '# A draft with a history\n\nThe first revision.\n';
+    const basePath = join(work, 'base.md');
+    writeFileSync(basePath, base, 'utf8');
+    const baseCharter = join(work, 'base.charter');
+    const sealed = spawnSync(
+      process.execPath,
+      ['cli/charter.js', 'seal', basePath, '--key', keyPath, '-o', baseCharter, '--title', 'A draft with a history', '--author', 'Casey', '--summary', 'The first revision.'],
+      { cwd: ROOT, encoding: 'utf8' },
+    );
+    assert.equal(sealed.status, 0, `the base seal refused: ${sealed.stderr}`);
+
+    const revised = '# A draft with a history\n\nThe second revision.\n';
+    const revisedPath = join(work, 'revised.md');
+    writeFileSync(revisedPath, revised, 'utf8');
+    const fixed = { summary: 'Appended in a page.', author: 'Casey' };
+
+    await drop(browser, 'base.charter', readFileSync(baseCharter));
+    const before = readdirSync(downloads);
+    const state = await browser.evaluate(`(async () => {
+      const set = (id, value) => { const node = document.getElementById(id); node.value = value; node.dispatchEvent(new Event('input', { bubbles: true })); };
+      set('w-key-text', ${JSON.stringify(key.private_pem)});
+      set('w-content', ${JSON.stringify(revised)});
+      set('w-author', ${JSON.stringify(fixed.author)});
+      set('w-summary', ${JSON.stringify(fixed.summary)});
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const seededTitle = document.getElementById('w-title').value;
+      document.getElementById('append').click();
+      for (let attempt = 0; attempt < 200; attempt += 1) {
+        const message = document.getElementById('w-message');
+        if (message.className.includes('message-done') || message.className.includes('message-fail')) break;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      return {
+        seededTitle,
+        messageClass: document.getElementById('w-message').className,
+        message: document.getElementById('w-message').textContent,
+        entries: document.querySelectorAll('#entries tr').length,
+        verdict: document.querySelector('.verdict')?.textContent ?? null,
+      };
+    })()`);
+
+    assert.equal(state.messageClass, 'message message-done', `the append refused: ${state.message}`);
+    assert.equal(
+      state.seededTitle,
+      'A draft with a history',
+      'the title field was seeded from the file, which is what "an append keeps the title it carries" means',
+    );
+    assert.equal(state.entries, 2, 'the history pane shows the entry that was there and the one that was added');
+    assert.equal(state.verdict, 'VERIFIED', 'a file the page appended to must verify');
+    assert.ok(state.message.includes('from 1 entry to 2'), `the message says what the append did: ${state.message}`);
+
+    const appended = await downloadSince(before);
+    assert.notEqual(appended, null, 'the page offered no appended file to download');
+    const pageBytes = readFileSync(/** @type {string} */ (appended));
+
+    // The strongest statement available for an append: two writers, on two
+    // runtimes, extend the same history and produce the same file. No `--title` is
+    // passed, because an append keeps the title the file carries and the page's
+    // field was seeded with exactly that title.
+    const cliPath = join(work, 'cli-edited.charter');
+    const edited = spawnSync(
+      process.execPath,
+      ['cli/charter.js', 'edit', baseCharter, revisedPath, '--key', keyPath, '-o', cliPath, '--summary', fixed.summary, '--author', fixed.author],
+      { cwd: ROOT, encoding: 'utf8' },
+    );
+    assert.equal(edited.status, 0, `charter edit refused: ${edited.stderr}`);
+    const cliBytes = readFileSync(cliPath);
+    assert.equal(
+      pageBytes.equals(cliBytes),
+      true,
+      `the page and the command line wrote different bytes (${pageBytes.length} against ${cliBytes.length}) for the same append`,
+    );
+
+    // A second key is refused rather than added: every entry of a file names the
+    // one key it carries, and a page that accepted this one would write a history
+    // that changes signer halfway through it.
+    const other = await generateKeyPair();
+    const refused = await browser.evaluate(`(async () => {
+      const node = document.getElementById('w-key-text');
+      node.value = ${JSON.stringify(other.private_pem)};
+      node.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      document.getElementById('append').click();
+      for (let attempt = 0; attempt < 200; attempt += 1) {
+        const message = document.getElementById('w-message');
+        if (message.className.includes('message-done') || message.className.includes('message-fail')) break;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      return { messageClass: document.getElementById('w-message').className, message: document.getElementById('w-message').textContent };
+    })()`);
+    assert.equal(refused.messageClass, 'message message-fail', 'a second key must be refused, not added');
+    assert.match(refused.message, /MISMATCH/, `the refusal carries the format's own reason code: ${refused.message}`);
+    assert.ok(refused.message.includes(other.key_id), 'the refusal names the key the form holds');
+  });
+
   await t.test('the page made no request beyond its own files, and threw nothing', async () => {
     const foreign = requests.filter((path) => !path.startsWith('/editor/') && !path.startsWith('/verifier/'));
     assert.deepEqual(foreign, [], 'the page asked for something that is not its own code');

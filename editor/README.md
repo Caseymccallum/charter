@@ -63,7 +63,11 @@ drive the page, and asserting that every request is `editor/…` or
   exact shape `charter verify --json` prints, so the page and the command line
   can be compared.
 - `content.md` is shown beside the verdict, as the bytes are: the format does not
-  parse Markdown and neither does this page.
+  parse Markdown and neither does this page. A **Save the document** button hands
+  those bytes over as a file, which is what the command line's `charter open` does —
+  and `test/editor.test.js` compares the two, because a page that saved its
+  rendering of the text rather than the bytes would produce a file that no longer
+  matches the digest the verdict was about.
 - The provenance history is listed — entry, action, author and key id, timestamp,
   the digests, the signature — with the two things a reader must not forget
   printed where they apply: every timestamp is a claim its signer made, and only
@@ -81,8 +85,35 @@ drive the page, and asserting that every request is `editor/…` or
 
 ## Write mode
 
-Seals one document, exactly as `charter seal` does: one entry, action `create`,
-`parent` `null`, the content's digest, and a signature over the canonical bytes.
+Two verbs share one form. **Seal and download** writes a new file: one entry,
+action `create`, `parent` `null`, the content's digest, and a signature over the
+canonical bytes — exactly as `charter seal` does. **Append a revision** adds one
+entry to the file that is open, action `edit`, `parent` the digest of the line
+before it, and the manifest re-signed with `content.sha256` moved to the new
+revision — exactly as `charter edit` does (SPEC.md 15.6).
+
+Both are held to the command line byte for byte. `test/editor.test.js` seals a
+document here, seals the same document with `charter seal`, and compares the bytes;
+and it seals a base, appends a revision here, appends the same revision with
+`charter edit`, and compares those bytes too. Neither comparison is a coincidence:
+the canonical bytes come from `verifier/canonical-write.js`, the container from
+`verifier/zip-write.js`, the key id from `deriveKeyId()`, and Ed25519 signatures are
+deterministic.
+
+Appending needs three things the form cannot supply, and each is why the page reads
+the open file again rather than using the values the verdict reported:
+
+- **the bytes of the log**, because the chain is over bytes and not over objects.
+  The earlier lines are copied byte for byte and never re-serialized: a re-encoded
+  line would still verify, and it would no longer be the bytes the next entry
+  commits to;
+- **the values the file carries** — the creation time and the author name come from
+  the artifact's own manifest, not from the form, because an append does not
+  re-declare who created the document or when;
+- **the key the file carries.** Every entry of a file names the one key it carries,
+  so a second key is refused with `MISMATCH` rather than added: accepting it would
+  write a history that changes signer halfway through it, which is the difference
+  between extending a history and starting a new one inside the same file.
 
 - **Content**: a textarea, seeded from the document that was read, if one was.
 - **Key**: a PKCS#8 PEM, chosen from disk or pasted. **Nothing is stored.** No
@@ -113,29 +144,34 @@ id from `deriveKeyId()`, and Ed25519 signatures are deterministic.
 ## What it is not
 
 - No sync, no accounts, no server of its own, no network requests.
-- No key storage and no key generation: sealing is the only thing it does with a
-  key, and a key never leaves the page.
-- No reimplementation of `seal`, `verify`, `cite` or `inspect`: it imports
-  `verify.js`, `canonical-write.js`, `manifest.js`, `zip-write.js`,
-  `base64url-write.js`, `base64url.js`, `provenance.js`, `zip.js`, `digest.js`,
-  `bytes.js`, `limits.js`, `schema.js`, `refuse.js` and `status.js` from
+- No key storage and no key generation: sealing and appending are the only things it
+  does with a key, and a key never leaves the page.
+- No reimplementation of `seal`, `edit`, `verify`, `cite` or `inspect`: it imports
+  `verify.js`, `provenance.js`, `manifest.js`, `canonical-write.js`, `zip-write.js`,
+  `base64url-write.js`, `base64url.js`, `zip.js`, `digest.js`, `bytes.js`,
+  `canonical.js`, `limits.js`, `schema.js`, `refuse.js` and `status.js` from
   `verifier/`, and uses Web Crypto for the signature. It writes no canonical JSON
-  of its own, no ZIP of its own, and no Ed25519 of its own.
+  of its own, no ZIP of its own, and no Ed25519 of its own. What it does assemble
+  itself is the shape of an entry and of a manifest — which the command line
+  assembles in `producer/seal.js` and `producer/edit.js`, modules a browser may not
+  import — and that is exactly the duplication the byte-for-byte tests above exist
+  to hold to one answer.
 - No Markdown parsing: the content is shown as text in a `<pre>`, which is enough
   for the claim to be visible.
-- **No history.** Sealing is the only thing this page does: it writes the first
-  entry of a history, and the command line's `charter edit` writes the next one
-  (SPEC.md 15.6). A page that appended an entry would need the artifact being
-  extended, the key it carries, and a copy of the log's bytes rather than its
-  values — all of which this page could do and none of which it does today,
-  because a demonstration that shows the format's claim is not a second producer.
+- **One revision at a time, and no rewriting.** Appending adds an entry and copies
+  the earlier ones byte for byte; the page cannot drop an entry, reorder a history,
+  or sign with a second key. Those are the operations the format's own caveat says
+  the key holder can do *outside* the page, and a page that offered them would be
+  inviting them.
 
 ## The tests
 
 `test/editor.test.js` asserts the rules above statically, and — when this machine
 has Chrome, Edge, Chromium, or a browser named by `CHARTER_BROWSER` — runs the
 page in a headless one and asks it for all 56 artifacts in the conformance kit,
-comparing every check status with the reference's, driving the read pane on four
-fixtures, sealing a document and comparing the bytes with the command line's, and
-reading the browser's own download back with the verifier. Without a browser it
-skips that half and says so.
+comparing every check status with the reference's, driving the read pane on five
+fixtures, saving the document a pane shows and comparing those bytes with
+`charter open`'s, sealing a document and comparing the bytes with `charter seal`'s,
+appending a revision and comparing the bytes with `charter edit`'s, asking for a
+second key and checking that it is refused, and reading the browser's own download
+back with the verifier. Without a browser it skips that half and says so.

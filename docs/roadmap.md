@@ -79,14 +79,22 @@ so a pipe carries bytes and nothing else.
   whole audit exists to catch.
 - Corpus / probe: **unchanged** — both are about artifacts, not commands.
 
-**1b. The editor appends a revision.** `editor/README.md` already says exactly what
-this needs and why it does not do it: the artifact being extended, the key it carries,
-and the log's bytes rather than its values. The writers are already in `verifier/**`
-and the page already imports them; the page seals and cannot edit.
+**1b. The editor appends a revision — done, and the read pane hands the document
+over.** The page seals and could not edit; it showed the document and could not save
+it. Both gaps are closed, and neither is a new implementation of anything: the page
+imports the writers that already live in `verifier/**`, and assembles an entry and a
+manifest exactly as `producer/edit.js` does — the duplication that a browser's import
+rules force, which is why the proof is byte-for-byte rather than structural.
 
-- Touches `SPEC.md`: no — §15.6 already specifies `edit`.
-- New tests: yes, in `test/editor.test.js`, in the shape it already uses: seal in the
-  page, edit in the page, compare the bytes with the command line's.
+- Touches `SPEC.md`: **no** — §15.6 already specifies `edit`, and §6 already says the
+  bytes are the content, which is what the save button hands over.
+- New tests: two in `test/editor.test.js`, both byte-for-byte against the command
+  line: the saved document against `charter open`, and the appended revision against
+  `charter edit`. The append test also asks for a second key and requires `MISMATCH`.
+- New registry rows: **none**, again — nothing new is exported from `verifier/**`.
+- One consequence: `docs/first-user.md` states the editor page's byte size and
+  `counts.test.js` holds it to the file, so growing the page made that number false
+  and it had to be corrected. Recorded here rather than done quietly.
 
 **1c. A path to an installed command.** `package.json` is `"private": true`, so
 `npm install -g charter` cannot work. There is no `files` allowlist, so a publish

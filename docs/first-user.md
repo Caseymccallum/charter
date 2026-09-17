@@ -89,7 +89,7 @@ the one thing this document is for.
 - The editor was verified to serve before the session was arranged, so that a
   failure of the hand-over is a finding about the editor rather than about a broken
   command: `node editor/serve.mjs --no-open --port 8123` answers
-  `GET /editor/index.html` with 200 and 12,247 bytes and `GET /verifier/verify.js`
+  `GET /editor/index.html` with 200 and 12,784 bytes and `GET /verifier/verify.js`
   with 200, which is the page and the module it imports. This is a check that the
   door opens, not a rehearsal of the session: nothing was dropped on the page, and
   no one has used it who did not write it.

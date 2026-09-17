@@ -4,6 +4,50 @@ Recorded because they are decisions about published behaviour, not internal
 tidying. The format identifier in `manifest.format` changes when section 14 of
 [SPEC.md](SPEC.md) changes; this file records what changed, when, and why.
 
+## Unreleased — the editor catches up with the command line
+
+Phase 1b of the roadmap: the page could show a document and seal one, and it could
+not hand the document over or write a second entry. Both are things `charter open`
+and `charter edit` already did from the command line, so the page was behind the
+commands rather than behind the format.
+
+**The read pane saves the document.** A button hands over the bytes of
+`content.md` — the bytes, not the page's rendering of them as text, because the
+bytes are what the digest was taken over. `test/editor.test.js` compares what the
+page saves with what `charter open` writes for the same file and requires them to be
+the same bytes. A file whose container cannot be read offers nothing, rather than an
+empty file: there is no document to hand over, and a button that produced one would
+be inventing a document.
+
+**The write pane appends a revision.** **Append a revision** adds one entry to the
+file that is open, action `edit`, `parent` the digest of the line before it as it
+stands in the file, and the manifest re-signed with `content.sha256` moved to the
+new revision. The earlier lines are copied byte for byte and never re-serialized. The
+page reads the open file again rather than using the values the verdict reported,
+because a chain is over bytes and not over objects, and because the creation time
+and the author name are the artifact's to carry rather than the form's to re-declare.
+
+**A second key is refused, not added.** Every entry of a file names the one key it
+carries, so an append signed with another key exits `MISMATCH` and writes nothing.
+That is §15.6's rule, and the alternative — accepting it — would write a history that
+changes signer halfway through it.
+
+The page still assembles an entry and a manifest itself, which the command line
+assembles in `producer/seal.js` and `producer/edit.js`; a browser may not import
+those modules. That duplication is why the tests are byte-for-byte rather than
+structural, and the new append test is the second such comparison: seal a base with
+the command line, append a revision in the page, append the same revision with
+`charter edit`, and require the two files to be identical.
+
+The format did not change again: no entry name, field, rule, limit or verdict moved,
+the kit was not regenerated, and the identifier stays `charter/0.1`.
+
+**One consequence worth recording, because it was not optional.** `docs/first-user.md`
+states the byte size of `editor/index.html` in its record of the courier check, and
+`counts.test.js` holds that number to the file. Growing the page made the number
+false, so the run failed until it was corrected. The document is otherwise untouched,
+and the number is the only line of it this pass changed.
+
 ## Unreleased — `open`: the document comes back out
 
 The roadmap's first finding was that nothing in the project could get the document

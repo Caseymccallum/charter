@@ -36,9 +36,9 @@
 
 import { decodeBase64Url } from '../verifier/base64url.js';
 import { encodeBase64Url } from '../verifier/base64url-write.js';
-import { toHex, utf8Decode, utf8Encode } from '../verifier/bytes.js';
+import { concat, toHex, utf8Decode, utf8Encode } from '../verifier/bytes.js';
 import { parseJsonText } from '../verifier/canonical.js';
-import { canonicalDocument, signingInput } from '../verifier/canonical-write.js';
+import { canonicalDocument, LF, signingInput } from '../verifier/canonical-write.js';
 import { ALGORITHM_NAME, hasWebCrypto, sha256 } from '../verifier/digest.js';
 import { LIMITS } from '../verifier/limits.js';
 import { ALGORITHM, deriveKeyId, FORMAT, PUBLIC_KEY_BYTES, SIGNATURE_BYTES } from '../verifier/manifest.js';
@@ -69,6 +69,16 @@ const NO_TIME_STATED = '1980-01-01T00:00:00Z';
  */
 const DEFAULT_AUTHOR = 'unknown';
 const DEFAULT_SUMMARY = 'Initial draft.';
+
+/**
+ * The action word a later revision carries (SPEC.md 7). Like the two defaults
+ * above, this is the producer's own word written here as a value rather than
+ * imported, because this page may not import `producer/**` — and `verifier/provenance.js`
+ * is the module that decides what the word means.
+ *
+ * @type {string}
+ */
+const LATER_ACTION = 'edit';
 
 /**
  * The checks that read provenance entries. Every one of them reads the log as a
@@ -141,6 +151,16 @@ function shortDigest(hex) {
  * @type {{ name: string, bytes: Uint8Array, result: object } | null}
  */
 let loaded = null;
+
+/**
+ * The bytes of the open file's `content.md`, or null when there are none to hand
+ * over. The read pane shows them as text; this is what a save button downloads,
+ * because the bytes are the content and a copy of the text is not the same thing
+ * (SPEC.md 6).
+ *
+ * @type {Uint8Array | null}
+ */
+let openContent = null;
 
 /**
  * Show a file: verdict first, then what the file claims beside it.
@@ -311,6 +331,9 @@ async function readContainer(bytes) {
 async function renderContent(bytes) {
   const pane = byId('content');
   const note = byId('content-note');
+  const save = /** @type {HTMLButtonElement} */ (byId('save-content'));
+  openContent = null;
+  save.hidden = true;
   const read = await readContainer(bytes);
   if (!read.ok) {
     note.textContent = '';
@@ -323,6 +346,11 @@ async function renderContent(bytes) {
     fill(pane, [element('p', `the archive holds no readable "${ENTRY_CONTENT}"`, 'muted')]);
     return;
   }
+  // The bytes are offered as a file whatever they decode to: they are the
+  // document, and a reader who wants them should get them rather than a copy of
+  // this page's rendering of them.
+  openContent = content;
+  save.hidden = false;
   const decoded = utf8Decode(content);
   if (decoded.ok) {
     fill(pane, [element('pre', decoded.text === '' ? '(the content is empty)' : decoded.text, 'content')]);
@@ -693,6 +721,144 @@ async function sealBytes() {
 }
 
 /**
+ * Append a revision to the file that is open (SPEC.md 15.6).
+ *
+ * This is what `charter edit` does, and every rule is the one that module applies:
+ * the earlier lines of the log are copied **byte for byte** rather than
+ * re-serialized, `parent` is the digest of the line before it *as it stands in the
+ * file*, and the manifest is written from the values the artifact already carries
+ * with `content.sha256` moved to the new revision. An append does not re-declare
+ * the creation time, the author name, or the creation entry's summary.
+ *
+ * Two things make this different from `sealBytes`, and both are why it reads the
+ * open file again instead of using the values the verdict reported. It needs the
+ * *bytes* of the log, because the chain is over bytes and not over objects; and it
+ * needs the key the artifact carries, because every entry of a file names the one
+ * key it carries — so a second key is a refusal rather than a second signer, which
+ * is the difference between extending a history and starting a new one inside the
+ * same file.
+ *
+ * @returns {Promise<Uint8Array>}
+ */
+async function editBytes() {
+  if (loaded === null) {
+    refuse(REASON.MISSING, 'no file is open, and an append needs the history it is appending to: read a .charter file first');
+  }
+  const open = /** @type {{ name: string, bytes: Uint8Array, result: object }} */ (loaded);
+  const container = await readContainer(open.bytes);
+  if (!container.ok) {
+    refuse(container.reason_code, `the open file could not be read again, so its history cannot be extended: ${container.detail}`);
+  }
+  const manifestBytes = container.files.get(ENTRY_MANIFEST);
+  const provenanceBytes = container.files.get(ENTRY_PROVENANCE);
+  if (manifestBytes === undefined) refuse(REASON.MISSING, `the open file holds no readable "${ENTRY_MANIFEST}", so there is nothing to append to`);
+  if (provenanceBytes === undefined) refuse(REASON.MISSING, `the open file holds no readable "${ENTRY_PROVENANCE}", and an append commits to the line before it`);
+
+  const decoded = utf8Decode(manifestBytes);
+  if (!decoded.ok) refuse(REASON.DECODE_ERROR, "the open file's manifest is not UTF-8, so the values an append copies out of it could not be read");
+  const parsed = parseJsonText(decoded.text);
+  if (!parsed.ok) refuse(parsed.reason_code, `the open file's manifest could not be read: ${parsed.detail}`);
+  const manifest = /** @type {Record<string, any>} */ (parsed.value);
+  const carried = manifest.author ?? {};
+  if (typeof carried.key_id !== 'string' || typeof carried.public_key !== 'string') {
+    refuse(REASON.MALFORMED, "the open file's manifest names no key, and every entry of a file names the one key it carries");
+  }
+  const carriedKeyId = /** @type {string} */ (carried.key_id);
+  const carriedPublicKey = /** @type {string} */ (carried.public_key);
+
+  const split = splitLines(provenanceBytes, LIMITS);
+  if (!split.ok) refuse(split.reason_code, `the open file's log could not be split into lines: ${split.detail}`);
+  if (split.lines.length === 0) refuse(REASON.MISSING, "the open file's log holds no line, and an append commits to the line before it");
+
+  const content = utf8Encode(/** @type {HTMLTextAreaElement} */ (byId('w-content')).value);
+  if (content.length >= 3 && content[0] === 0xef && content[1] === 0xbb && content[2] === 0xbf) {
+    refuse(
+      REASON.NON_CANONICAL,
+      'the content begins with a UTF-8 byte order mark, and charter/0.1 does not allow one (SPEC.md 6): the bytes of the file are the content, so a mark would be content too',
+      ENTRY_CONTENT,
+    );
+  }
+  const title = /** @type {HTMLInputElement} */ (byId('w-title')).value.trim();
+  if (title === '') refuse(REASON.MALFORMED, 'manifest.title is a non-empty string, so a title is needed: an append keeps the one the file carries unless you state another', 'title');
+  const author = /** @type {HTMLInputElement} */ (byId('w-author')).value.trim();
+  if (author === '') refuse(REASON.MALFORMED, 'a provenance entry requires an author name, and this append states none', 'author');
+  const summary = /** @type {HTMLTextAreaElement} */ (byId('w-summary')).value;
+  if (summary.trim() === '') refuse(REASON.MALFORMED, 'a provenance entry requires a non-empty summary, and this append states none', 'summary');
+  const time = chosenTime();
+  const loadedKey = await loadKeyInPage(keyTextFromForm());
+
+  if (loadedKey.keyId !== carriedKeyId) {
+    refuse(
+      REASON.MISMATCH,
+      `the open file carries ${carriedKeyId} and this form holds ${loadedKey.keyId}. Every entry of a file names the one key it carries, so an append signed with another key would be a history that changes signer halfway through it`,
+    );
+  }
+
+  const digest = await sha256(content);
+  if (digest === null) refuse(REASON.UNSUPPORTED_FEATURE, 'this runtime cannot compute SHA-256, so no digest of the content could be computed');
+  const contentSha256 = toHex(digest);
+
+  // The chain link, computed the way the link check computes it: the line as it
+  // stands in the file, and the one LF that closes it.
+  const previous = split.lines[split.lines.length - 1];
+  const parent = await sha256(concat([previous, LF]));
+  if (parent === null) refuse(REASON.UNSUPPORTED_FEATURE, 'this runtime cannot compute SHA-256, so the line this entry commits to could not be hashed');
+
+  const entry = {
+    action: LATER_ACTION,
+    author: { key_id: loadedKey.keyId, name: author },
+    content_sha256: contentSha256,
+    parent: toHex(parent),
+    summary,
+    timestamp: time.created_at,
+  };
+  const entryLine = canonicalDocument({ ...entry, signature: encodeBase64Url(await signatureOf(loadedKey, signingInput(entry, 'signature'))) });
+  if (entryLine.length > LIMITS.MAX_PROVENANCE_LINE_BYTES) {
+    refuse(
+      REASON.LIMIT_EXCEEDED,
+      `the provenance entry would be ${entryLine.length} bytes, above the declared limit of ${LIMITS.MAX_PROVENANCE_LINE_BYTES} for one line`,
+      ENTRY_PROVENANCE,
+    );
+  }
+
+  // The manifest, with the head moved to the revision this entry signs over. The
+  // key fields are the ones the artifact carries rather than the ones the form
+  // holds, because an append does not re-declare who the signer is — and the check
+  // above is what makes those two the same key.
+  const unsigned = {
+    author: {
+      algorithm: ALGORITHM,
+      key_id: carriedKeyId,
+      name: carried.name,
+      public_key: carriedPublicKey,
+    },
+    content: { sha256: contentSha256 },
+    created_at: manifest.created_at,
+    format: FORMAT,
+    title,
+  };
+  const newManifestBytes = canonicalDocument({ ...unsigned, signature: encodeBase64Url(await signatureOf(loadedKey, signingInput(unsigned, 'signature'))) });
+  if (newManifestBytes.length > LIMITS.MAX_JSON_DOCUMENT_BYTES) {
+    refuse(
+      REASON.LIMIT_EXCEEDED,
+      `manifest.json would be ${newManifestBytes.length} bytes, above the declared limit of ${LIMITS.MAX_JSON_DOCUMENT_BYTES} for one JSON document`,
+      ENTRY_MANIFEST,
+    );
+  }
+
+  // The earlier lines are not re-serialized, re-signed, or dropped: they are the
+  // bytes the file already held, and the new line follows the last of them.
+  return zipStore(
+    [
+      { name: ENTRY_MANIFEST, data: newManifestBytes },
+      { name: ENTRY_CONTENT, data: content },
+      { name: ENTRY_PROVENANCE, data: concat([provenanceBytes, entryLine]) },
+    ],
+    LIMITS,
+  );
+}
+
+/**
  * Hand the bytes to the browser as a file.
  *
  * A blob URL belonging to this page: no request leaves it, and the object URL is
@@ -726,6 +892,20 @@ function outputName() {
   return `${stem.trim() === '' ? 'document' : stem}.charter`;
 }
 
+/**
+ * The name to offer the document under when it is saved out of the read pane:
+ * the name the file was read under, with the extension of the document inside it.
+ *
+ * This is a name, not a claim: the bytes written are the content bytes, and what
+ * they are is decided by the manifest's digest, not by what a file is called.
+ *
+ * @returns {string}
+ */
+function documentName() {
+  const stem = loaded === null ? 'document' : loaded.name.replace(/\.[^./\\]+$/, '');
+  return `${stem.trim() === '' ? 'document' : stem}.md`;
+}
+
 /** Seal on a click, and say what happened. */
 async function runSeal() {
   const message = byId('w-message');
@@ -738,6 +918,39 @@ async function runSeal() {
     await loadBytes(bytes, name);
     message.className = 'message message-done';
     message.textContent = `sealed ${bytes.length} byte(s) and offered them as "${name}". The verdict above is for those bytes, read back out of what was written rather than out of the downloaded copy. Verify that copy with \`charter verify ${name}\`.`;
+  } catch (error) {
+    if (!(error instanceof RefusalError)) throw error;
+    message.className = 'message message-fail';
+    message.textContent = `${error.reason_code}  ${error.detail}`;
+  }
+}
+
+/**
+ * Append on a click, and say what happened.
+ *
+ * The message names the count before and after, because "one entry was added" is
+ * the whole claim an append makes and a reader should be able to see it without
+ * counting rows in the history pane.
+ *
+ * @returns {Promise<void>}
+ */
+async function runAppend() {
+  const message = byId('w-message');
+  message.className = 'message';
+  message.textContent = 'appending…';
+  try {
+    const entriesBefore = loaded === null ? null : /** @type {any} */ (loaded.result).artifact?.entries ?? null;
+    const bytes = await editBytes();
+    const name = outputName();
+    download(bytes, name);
+    await loadBytes(bytes, name);
+    const entriesAfter = /** @type {any} */ (/** @type {any} */ (loaded).result).artifact?.entries ?? null;
+    const counted =
+      typeof entriesBefore === 'number' && typeof entriesAfter === 'number'
+        ? `the history went from ${entriesBefore} entry to ${entriesAfter}`
+        : 'one entry was appended';
+    message.className = 'message message-done';
+    message.textContent = `appended a revision and offered ${bytes.length} byte(s) as "${name}" — ${counted}. The verdict above is for those bytes, read back out of what was written. \`charter verify ${name}\` checks the copy.`;
   } catch (error) {
     if (!(error instanceof RefusalError)) throw error;
     message.className = 'message message-fail';
@@ -816,12 +1029,16 @@ async function showFile(file) {
   await loadBytes(bytes, file.name);
 }
 
-/** Wire the read pane: a file input, a drop target, and nothing else. */
+/** Wire the read pane: a file input, a drop target, and the save button. */
 function wireRead() {
   const input = /** @type {HTMLInputElement} */ (byId('file'));
   input.addEventListener('change', () => {
     const file = input.files?.[0];
     if (file !== undefined) void showFile(file);
+  });
+  byId('save-content').addEventListener('click', () => {
+    if (openContent === null) return;
+    download(openContent, documentName());
   });
   const zone = byId('dropzone');
   zone.addEventListener('dragover', (event) => {
@@ -862,6 +1079,7 @@ function wireWrite() {
   });
   byId('w-key-text').addEventListener('input', () => void refreshKeyReadout());
   byId('seal').addEventListener('click', () => void runSeal());
+  byId('append').addEventListener('click', () => void runAppend());
 }
 
 /**
