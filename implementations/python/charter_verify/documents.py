@@ -8,6 +8,15 @@ byte-level rules (that is `canonical`) and none about keys (that is `ed25519`).
 
 Two splits are worth naming, because they are the ones a port can get wrong:
 
+* **FIELDS versus the check that reads the value.** FIELDS answers whether a
+  field is present and whether it holds the JSON value the table names, and
+  nothing about the string inside it. An empty digest, an empty signature and a
+  parent that is not a digest all pass it, because each of those fields has a
+  check that reads it: `L0.CONTENT.HASH` and `L0.PROVENANCE.CONTENT_HASH_FORMAT`
+  for a digest, `L1.MANIFEST.SIGNATURE` and `L1.PROVENANCE.SIGNATURES` for a
+  signature, `L2.CHAIN.LINKS` for a parent. What FIELDS does measure is the
+  fields no other check reads — `title`, `author.name` and `author.key_id` are
+  non-empty strings and this is the check that says so.
 * **FIELDS versus EXTRA_FIELDS.** A field this version defines that is missing is
   MISSING: SPEC section 10 defines MISSING as "a required thing is absent", and a
   field nobody wrote is not a field whose spelling is wrong. A field that is
@@ -28,7 +37,7 @@ from typing import Any
 
 from . import limits
 from .errors import Refusal
-from .vocabulary import LIMIT_EXCEEDED, MALFORMED, MISSING
+from .vocabulary import LIMIT_EXCEEDED, MALFORMED, MISSING, UNKNOWN_FIELD
 
 FORMAT = "charter/0.1"
 ALGORITHM = "ed25519"
@@ -148,14 +157,41 @@ def _leap(year: int) -> bool:
     return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
 
 
+def check_enum(value: Any, allowed: tuple, what: str) -> str:
+    """One of the values this version defines, or the code for what it is.
+
+    A value that is not a string is MALFORMED: the field is there and does not
+    hold the JSON value the table names. A string this version does not define is
+    UNKNOWN_FIELD, which is the vocabulary's word for a thing the verifier has no
+    rule for — SPEC section 5 says an algorithm this version does not define is
+    "reported as a field value it does not define, not skipped over", and the
+    log's `action` is the same kind of field with the same two answers.
+    """
+    if not isinstance(value, str):
+        raise Refusal(MALFORMED, f"{what} is not a string")
+    if value not in allowed:
+        defined = ", ".join(repr(one) for one in allowed)
+        raise Refusal(
+            UNKNOWN_FIELD,
+            f"{what} is {value!r}, and this version defines only {defined}",
+        )
+    return value
+
+
 def read_manifest(value: dict) -> Manifest:
     """The fields of a manifest, present and typed. L0.MANIFEST.FIELDS.
 
     What this check does **not** do is judge the spelling of the values: an
-    uppercase digest, a padded signature and a key of the wrong length all pass
-    here, and the checks that read those values report what is wrong with them.
-    SPEC section 5's table said otherwise and was amended; the recorded answer
-    for `manifest-signature-truncated` had already contradicted it.
+    uppercase digest, a padded signature, an empty signature and a key of the wrong
+    length all pass here, and the checks that read those values report what is
+    wrong with them. SPEC section 5's table said otherwise and was amended; the
+    recorded answer for `manifest-signature-truncated` had already contradicted
+    it.
+
+    `title`, `author.name` and `author.key_id` are the fields no other check reads,
+    so their shape — a non-empty string — is this check's requirement, and the
+    reason it is the one that reports an empty one rather than leaving it to be
+    compared against a key id that is not there.
 
     What it does mean by "present" is that absence is its own answer: a field
     that is not in the object is MISSING, and only a field that is there and
@@ -188,14 +224,15 @@ def read_manifest(value: dict) -> Manifest:
     name = author["name"]
     if not isinstance(name, str) or name == "":
         raise Refusal(MALFORMED, "manifest.author.name is not a non-empty string")
-    if author["algorithm"] != ALGORITHM:
-        raise Refusal(
-            MALFORMED,
-            f"manifest.author.algorithm is {author['algorithm']!r}, and this version "
-            f"defines exactly one value, {ALGORITHM!r}",
-        )
-    if not isinstance(author["key_id"], str):
-        raise Refusal(MALFORMED, "manifest.author.key_id is not a string")
+    check_enum(author["algorithm"], (ALGORITHM,), "manifest.author.algorithm")
+    # The key id has no check of its own: nothing else reads it as a value, so its
+    # shape is FIELDS' question and "a non-empty string" is the whole of it
+    # (SPEC section 5). Whether it is the *derivation* of the key beside it is
+    # L1.MANIFEST.KEY_ID's question, and a key id that is not there at all is not
+    # one to compare.
+    key_id = author["key_id"]
+    if not isinstance(key_id, str) or key_id == "":
+        raise Refusal(MALFORMED, "manifest.author.key_id is not a non-empty string")
     if not isinstance(author["public_key"], str):
         raise Refusal(MALFORMED, "manifest.author.public_key is not a string")
 
@@ -211,18 +248,19 @@ def read_entry(value: dict, line: bytes) -> LogEntry:
     signature is the business of the check that consumes it, and a field that is
     not in the object is MISSING rather than MALFORMED: absence has its own reason
     code, and the check that reads the value reports the same one when it goes
-    looking for a value that is not there (SPEC sections 5, 7 and 10).
+    looking for a value that is not there (SPEC sections 5, 7 and 10). `parent` is
+    a string or null here and a digest in `L2.CHAIN.LINKS`, which is the check that
+    reads it.
+
+    `summary`, `author.name` and `author.key_id` are the fields no other check
+    reads, so their shape — a non-empty string — is this check's requirement and
+    the reason it is the one that reports an empty one.
     """
     for field in ENTRY_FIELDS:
         if field not in value:
             raise Refusal(MISSING, f"a provenance entry carries no {field!r} field")
     check_timestamp(value["timestamp"], "a provenance entry's timestamp")
-    if value["action"] not in ACTIONS:
-        raise Refusal(
-            MALFORMED,
-            f"a provenance entry's action is {value['action']!r}, and this version "
-            "defines 'create' and 'edit'",
-        )
+    check_enum(value["action"], ACTIONS, "a provenance entry's action")
     summary = value["summary"]
     if not isinstance(summary, str) or summary == "":
         raise Refusal(MALFORMED, "a provenance entry's summary is not a non-empty string")
@@ -235,8 +273,11 @@ def read_entry(value: dict, line: bytes) -> LogEntry:
     name = author["name"]
     if not isinstance(name, str) or name == "":
         raise Refusal(MALFORMED, "a provenance entry's author.name is not a non-empty string")
-    if not isinstance(author["key_id"], str):
-        raise Refusal(MALFORMED, "a provenance entry's author.key_id is not a string")
+    entry_key_id = author["key_id"]
+    if not isinstance(entry_key_id, str) or entry_key_id == "":
+        raise Refusal(
+            MALFORMED, "a provenance entry's author.key_id is not a non-empty string"
+        )
     parent = value["parent"]
     if parent is not None and not isinstance(parent, str):
         raise Refusal(MALFORMED, "a provenance entry's parent is neither null nor a string")

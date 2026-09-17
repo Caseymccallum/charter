@@ -193,6 +193,133 @@ class LogReadingTest(unittest.TestCase):
         )
 
 
+class OwnershipTest(unittest.TestCase):
+    """Which check reports a field's string being wrong. SPEC section 10's head.
+
+    These cases came from a differential *sweep*: one field of the valid fixture
+    rewritten eleven ways — absent, `null`, a number, a short string, the empty
+    string, an array, an object, uppercase, a character outside the alphabet, a
+    padded spelling, and one character short of its own spelling — with both
+    implementations asked about all 212 of them. Twenty-six disagreed, and every
+    one of those was the *reference* doing something section 10 does not
+    authorise: measuring a string that no check had read yet, or refusing a
+    version it had not been asked to implement. The port was right about all of
+    them, and the sweep is `implementations/python/tools/sweep.py`.
+    """
+
+    def log(self, *changes) -> bytes:
+        """The committed log, with one mutation applied to each line named."""
+        lines = [
+            canonical.parse_document(line)
+            for line in fixture_parts()["provenance.jsonl"].split(b"\n")
+            if line
+        ]
+        for number, change in changes:
+            change(lines[number])
+        return with_log(b"".join(canonical.canonical_document(one) for one in lines))
+
+    def test_an_empty_digest_belongs_to_the_check_that_reads_it(self) -> None:
+        """`content_sha256` is a string to FIELDS and a digest to the check that reads it."""
+        data = self.log((0, lambda entry: entry.__setitem__("content_sha256", "")))
+        self.assertEqual(check(data, "L0.PROVENANCE.FIELDS").status, "PASS")
+        self.assertEqual(
+            fails(data)["L0.PROVENANCE.CONTENT_HASH_FORMAT"], "NON_CANONICAL_ENCODING"
+        )
+
+    def test_a_digest_that_is_not_a_string_is_malformed_where_it_is_read(self) -> None:
+        """A field that is present and is not a string is not a misspelling."""
+        data = self.log((0, lambda entry: entry.__setitem__("content_sha256", 1)))
+        self.assertEqual(fails(data)["L0.PROVENANCE.FIELDS"], "MALFORMED")
+        self.assertEqual(
+            fails(data)["L0.PROVENANCE.CONTENT_HASH_FORMAT"], "MALFORMED"
+        )
+
+    def test_an_empty_signature_belongs_to_the_check_that_reads_it(self) -> None:
+        entry = self.log((0, lambda one: one.__setitem__("signature", "")))
+        self.assertEqual(check(entry, "L0.PROVENANCE.FIELDS").status, "PASS")
+        self.assertEqual(fails(entry)["L1.PROVENANCE.SIGNATURES"], "MALFORMED")
+
+        manifest = manifest_change(lambda value: value.__setitem__("signature", ""))
+        self.assertEqual(check(manifest, "L0.MANIFEST.FIELDS").status, "PASS")
+        self.assertEqual(fails(manifest)["L1.MANIFEST.SIGNATURE"], "MALFORMED")
+
+    def test_a_parent_that_is_not_a_digest_belongs_to_links(self) -> None:
+        """`parent` is a string or null to FIELDS, and a digest to LINKS.
+
+        SPEC section 7 hands `parent` to `L2.CHAIN.LINKS` in the sentence that
+        hands `content_sha256` to `L0.PROVENANCE.CONTENT_HASH_FORMAT`, so a
+        parent that is not 64 lowercase hex characters is a second spelling
+        rather than a link that does not match — and an uppercase digest is the
+        case section 5 spells out by name.
+        """
+        for parent in ("not a digest", "", "!"):
+            with self.subTest(parent):
+                data = self.log((1, lambda entry: entry.__setitem__("parent", parent)))
+                self.assertEqual(check(data, "L0.PROVENANCE.FIELDS").status, "PASS")
+                self.assertEqual(
+                    fails(data)["L2.CHAIN.LINKS"], "NON_CANONICAL_ENCODING"
+                )
+
+        upper = self.log(
+            (
+                1,
+                lambda entry: entry.__setitem__("parent", entry["parent"].upper()),
+            )
+        )
+        self.assertEqual(fails(upper)["L2.CHAIN.LINKS"], "NON_CANONICAL_ENCODING")
+
+        missing = self.log((1, lambda entry: entry.__setitem__("parent", None)))
+        self.assertEqual(check(missing, "L0.PROVENANCE.FIELDS").status, "PASS")
+        self.assertEqual(fails(missing)["L2.CHAIN.LINKS"], "MISMATCH")
+
+    def test_a_first_entry_with_a_parent_belongs_to_first_parent_null(self) -> None:
+        """The first entry's parent is read by the check about starting, not by LINKS."""
+        data = self.log((0, lambda entry: entry.__setitem__("parent", "not a digest")))
+        self.assertEqual(check(data, "L0.PROVENANCE.FIELDS").status, "PASS")
+        self.assertEqual(fails(data)["L2.CHAIN.FIRST_PARENT_NULL"], "MISMATCH")
+
+    def test_an_empty_key_id_belongs_to_fields(self) -> None:
+        """No other check reads a key id as a value, so its shape is FIELDS'.
+
+        Section 5's table gives `author.key_id` "a non-empty string" to
+        `L0.MANIFEST.FIELDS`. A key id that is not a name for a key is not a key
+        id that failed to be the derivation of anything, and the verdict says so:
+        one FAIL, and the seven checks that needed a readable manifest skipped.
+        """
+        manifest = manifest_change(lambda value: value["author"].__setitem__("key_id", ""))
+        self.assertEqual(fails(manifest), {"L0.MANIFEST.FIELDS": "MALFORMED"})
+        self.assertEqual(skips(manifest), 7)
+
+        entry = self.log((1, lambda one: one["author"].__setitem__("key_id", "")))
+        self.assertEqual(check(entry, "L0.PROVENANCE.FIELDS").status, "FAIL")
+        self.assertEqual(fails(entry)["L0.PROVENANCE.FIELDS"], "MALFORMED")
+        self.assertEqual(check(entry, "L1.PROVENANCE.KEYS").status, "SKIP")
+
+    def test_a_key_that_is_not_a_key_belongs_to_key_id(self) -> None:
+        """An empty public key is a key of the wrong length, and KEY_ID says so."""
+        manifest = manifest_change(
+            lambda value: value["author"].__setitem__("public_key", "")
+        )
+        self.assertEqual(check(manifest, "L0.MANIFEST.FIELDS").status, "PASS")
+        self.assertEqual(
+            fails(manifest),
+            {"L1.MANIFEST.KEY_ID": "MALFORMED", "L1.MANIFEST.SIGNATURE": "MALFORMED"},
+        )
+
+    def test_an_empty_format_is_a_version_this_verifier_does_not_implement(self) -> None:
+        """SPEC section 5's three cases: absent, not a string, and not implemented.
+
+        The empty string is a string, so it is the third case and not the second:
+        `L0.FORMAT.IDENTIFIER` reports UNSUPPORTED_VERSION, and the 19 checks that
+        need a version this verifier implements are skipped *as unsupported*
+        rather than as PREREQUISITE_FAILED.
+        """
+        data = manifest_change(lambda value: value.__setitem__("format", ""))
+        self.assertEqual(fails(data), {"L0.FORMAT.IDENTIFIER": "UNSUPPORTED_VERSION"})
+        self.assertEqual(check(data, "L0.MANIFEST.FIELDS").status, "SKIP")
+        self.assertEqual(skips(data), 19)
+
+
 class IntegerSpellingTest(unittest.TestCase):
     def test_a_leading_zero_is_a_non_integer_number(self) -> None:
         """SPEC section 4.1 lists five violations and named the reason for four.

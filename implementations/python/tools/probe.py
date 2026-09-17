@@ -2,11 +2,14 @@
 
 The kit is 54 artifacts with recorded answers. It is not the whole format: a
 fixture can only ask about a rule somebody already thought of, and a rule nobody
-wrote down is exactly where two implementations drift apart. This tool builds 20
+wrote down is exactly where two implementations drift apart. This tool builds 26
 artifacts by hand — a leading-zero integer, four spellings of an escape, an
 uppercase digest, a key with a trailing bit pattern that is not zero, a log line
-that is not an object, a CRLF line, an unknown field in four places — asks the
-reference command line what it says about each one, and records the answer.
+that is not an object, a CRLF line, an unknown field in four places, an empty
+digest, an empty signature, a parent in uppercase, an empty `format`, an empty
+`key_id`, and a first entry whose parent is a valid digest where `null` is
+required — asks the reference command line what it says about each one, and
+records the answer.
 
 # What is here, and what is a probe
 
@@ -20,14 +23,18 @@ rebuilds every artifact from its recipe and compares the bytes with the ones on
 disk, which is how a fixture that drifted away from its recipe is caught.
 
 Each case states what it *asks* (`asked`), and the record carries what the
-reference *answered* (`expected`). When the two contradict each other, `--build`
-writes nothing and says so: an artifact whose recorded answer is not the answer
+reference *answered* (`expected`). `--build` refuses twice over. It refuses when
+the two contradict each other — an artifact whose recorded answer is not the answer
 the format requires is a broken fixture rather than a finding, and a probe that
-quietly recorded whatever it was given would be a probe that cannot fail.
+quietly recorded whatever it was given would be a probe that cannot fail. And it
+refuses when the *port* answers a case differently from the reference: a case both
+implementations do not agree about is the finding itself, and writing one of the
+two answers into the record would file a disagreement as a settled answer. What
+the record holds is what both of them said.
 
 # Why the answers are recorded rather than asserted
 
-Two of these 20 wanted an answer the specification did not give, and both are now
+Two of these wanted an answer the specification did not give, and both are now
 written down in it (a leading zero is a NON_INTEGER_NUMBER; `L0.PROVENANCE.NONEMPTY`
 counts entries and not lines). A third is the opposite case, and the reason this
 file exists in a repository whose spec already has a second reading of it: an
@@ -38,6 +45,26 @@ implementations that are wrong the same way agree about everything, including th
 mistake; a probe that asks the question in the spec's words is what turns that
 into a finding. Section 10, section 5 and section 7 now say which code an absent
 field carries, and `vectors/probe/expected.json` records it.
+
+Three more are that same finding in other fields, and they were found the way it
+was: by asking. An empty `content_sha256`, an empty signature and a parent written
+in uppercase are all cases where `L0.PROVENANCE.FIELDS` measured a string that the
+check reading the value owns — a complaint taken from the check that can name it,
+one FAIL where the format has two sentences, and seven checks skipped that had an
+answer. SPEC.md section 10's head now states the rule those three are the test of
+(one requirement, one owner), §10.2 is that rule applied to all 30 checks, and
+`implementations/python/tests/test_spec_gaps.py` holds the three answers.
+
+Three further cases were settled by that rule without ever being a disagreement,
+and this pass turned them into fixtures because a rule the repository's own tests
+hold is not a rule a stranger can check: an empty `format` (a present string that
+names no version, which the version gate owns, so the artifact is unproven rather
+than broken), an empty `author.key_id` (FIELDS' own requirement, because no other
+check reads a key id), and a first entry whose `parent` is a valid digest where
+`null` is required (`L2.CHAIN.FIRST_PARENT_NULL`'s value, and not the spelling
+failure `L2.CHAIN.LINKS` reports for a non-digest alongside it). §10.2's
+`settled by` column names each row's case, and these three moved that column's
+`prose` rows to `fixture`.
 
 The rest are cases where the specification is clear and the *reference's* reading
 of it is what the second implementation was compared against — SPEC.md section 16
@@ -74,6 +101,7 @@ from tests.support import (  # noqa: E402
     artifact,
     fixture_parts,
 )
+from tools.differential import differences, port_tally, reference_tally  # noqa: E402
 
 OUT_DIR = REPO / "vectors" / "probe" / "out"
 RECORD_PATH = REPO / "vectors" / "probe" / "expected.json"
@@ -81,7 +109,8 @@ REFERENCE = ["node", "cli/charter.js", "verify"]
 
 PROBE_NOTE = (
     "The answers in this file are the reference command line's, recorded as a black box by "
-    "implementations/python/tools/probe.py --build. Each case carries the question it asks (`asked`) "
+    "implementations/python/tools/probe.py --build, which refuses to write a record when the "
+    "reference and the port disagree about a case. Each case carries the question it asks (`asked`) "
     "and the answer the reference gave (`expected`); vectors/probe/run.js replays both against the "
     "reference and, when a Python interpreter is installed, against implementations/python."
 )
@@ -123,6 +152,32 @@ def first_log_line() -> bytes:
     return canonical.canonical_document(
         canonical.parse_document(fixture_parts()[PROVENANCE].split(b"\n")[0])
     )
+
+
+def first_parent_with_a_predecessor() -> bytes:
+    """The valid log whose first entry names a predecessor, with the chain rebuilt.
+
+    Line 1 gets a well-formed digest where `null` is required, and line 2's parent
+    is recomputed over line 1 as it now stands, so the link between the two lines
+    is exactly what section 9 requires and `L2.CHAIN.LINKS` has nothing to say
+    about it. The one requirement this artifact breaks is the first entry's, which
+    `L2.CHAIN.FIRST_PARENT_NULL` owns — and that is the question: which check
+    answers for the first entry's parent. Signatures are not recomputed, so
+    `L1.PROVENANCE.SIGNATURES` reports them stale, which is a second defect and
+    not part of the question.
+    """
+    entries = [
+        canonical.parse_document(one)
+        for one in fixture_parts()[PROVENANCE].split(b"\n")
+        if one
+    ]
+    entries[0]["parent"] = hashlib.sha256(b"a line that is not in this log\n").hexdigest()
+    # `canonical_document` writes the canonical form *plus the one LF that closes
+    # it*, so the digest of "line 1 as it stands in the file" is the digest of
+    # exactly these bytes — section 9's rule, not an extra newline.
+    line = canonical.canonical_document(entries[0])
+    entries[1]["parent"] = hashlib.sha256(line).hexdigest()
+    return with_log(b"".join(canonical.canonical_document(one) for one in entries))
 
 
 def probes() -> list[dict]:
@@ -301,6 +356,62 @@ def probes() -> list[dict]:
                 )
             ),
         },
+        {
+            "name": "log-line-empty-content-hash",
+            "probe": "An entry whose `content_sha256` is the empty string. It is a string, so the seven fields are present and correctly typed and `L0.PROVENANCE.FIELDS` has nothing to say; what is wrong is that `\"\"` is not 64 lowercase hex characters, which is the sentence of the check that reads the digest. The reference used to report it as a malformed *field* and skip the seven checks that had an answer, which is the same finding as `log-line-not-canonical` in a different field.",
+            "asked": {
+                "verdict": "BROKEN",
+                "fail": {
+                    "L0.PROVENANCE.CONTENT_HASH_FORMAT": "NON_CANONICAL_ENCODING",
+                    "L1.PROVENANCE.SIGNATURES": "MISMATCH",
+                    "L2.CHAIN.HEAD_MATCHES_CONTENT": "NON_CANONICAL_ENCODING",
+                },
+            },
+            "bytes": log_with(lambda entry: entry.__setitem__("content_sha256", "")),
+        },
+        {
+            "name": "log-line-empty-signature",
+            "probe": "An entry whose signature is the empty string. `\"\"` is the one spelling of the empty byte string, so this is not a spelling problem at all: the signature decodes to 0 bytes where Ed25519 uses 64, which is MALFORMED, and `L1.PROVENANCE.SIGNATURES` is the check that says so. The reference used to report it as a malformed *field* instead.",
+            "asked": {"verdict": "BROKEN", "fail": {"L1.PROVENANCE.SIGNATURES": "MALFORMED"}},
+            "bytes": log_with(lambda entry: entry.__setitem__("signature", "")),
+        },
+        {
+            "name": "log-line-bad-parent",
+            "probe": "An entry whose `parent` is the digest of the line before it written in uppercase: the same 64 hex characters, in the one other spelling of them. `parent` is a string or null as far as the fields are concerned, and the value is a digest to `L2.CHAIN.LINKS`, so this is NON_CANONICAL_ENCODING rather than a link that does not match — and rather than a malformed field, which is what the reference reported before section 10 said which check owns a parent.",
+            "asked": {
+                "verdict": "BROKEN",
+                "fail": {
+                    "L2.CHAIN.LINKS": "NON_CANONICAL_ENCODING",
+                    "L1.PROVENANCE.SIGNATURES": "MISMATCH",
+                },
+            },
+            "bytes": log_with(lambda entry: entry.__setitem__("parent", entry["parent"].upper())),
+        },
+        {
+            "name": "manifest-empty-format",
+            "probe": "`format` is the empty string. It is not an absence: the key is there, so MISSING is not the word for it. It is not a malformation either: `\"\"` is a string, so MALFORMED is not the word for it. It is a present string that names no version this format implements, and section 5's three cases are absent, not a string, and a value this verifier does not implement — the empty string is the third, so the version gate owns it and the verdict is INCOMPLETE rather than BROKEN. The checks that depend on a manifest value are SKIP behind the gate, which is §10.1 and not a second failure.",
+            "asked": {
+                "verdict": "INCOMPLETE",
+                "unsupported": {"L0.FORMAT.IDENTIFIER": "UNSUPPORTED_VERSION"},
+            },
+            "bytes": manifest_change(lambda value: value.__setitem__("format", "")),
+        },
+        {
+            "name": "manifest-empty-key-id",
+            "probe": "`author.key_id` is the empty string. Section 5's table asks for a non-empty string, and this is empty, so `L0.MANIFEST.FIELDS` reports MALFORMED — and it is FIELDS that reports it because no other check reads a key id: `L1.MANIFEST.KEY_ID` derives the id from the public key and compares the two, and it cannot run until the fields are readable. The checks that need a manifest value are SKIP, exactly as they are for any other thing FIELDS refuses.",
+            "asked": {"verdict": "BROKEN", "fail": {"L0.MANIFEST.FIELDS": "MALFORMED"}},
+            "bytes": manifest_change(lambda value: value["author"].__setitem__("key_id", "")),
+        },
+        {
+            "name": "log-first-parent-nonnull",
+            "probe": "The first entry's `parent` is a well-formed digest — 64 lowercase hex characters — of a line that is not in this log, and the second entry's parent is recomputed over the first line as it now stands, so the link between them is exactly what section 9 asks for and `L2.CHAIN.LINKS` passes. The question is which check answers for the first entry's parent. It is not a spelling problem: the value is a digest, so nothing here is NON_CANONICAL_ENCODING. It is not LINKS' value either: section 9's LINKS reads every *later* entry's parent, and the first entry's is the one value `L2.CHAIN.FIRST_PARENT_NULL` owns, whatever it holds. The requirement there is that the chain starts from nothing, so a digest where `null` is required is MISMATCH and nothing else. Compare `log-line-bad-parent` in this probe, where the same field holds a non-digest string on an entry LINKS does read: that is a spelling failure and LINKS owns it. The kit's `log-reordered` shows the same field failing, but it moves both entries, so LINKS fails there too and the two owners are not separated.",
+            "asked": {
+                "verdict": "BROKEN",
+                "fail": {"L2.CHAIN.FIRST_PARENT_NULL": "MISMATCH"},
+                "pass": ["L2.CHAIN.LINKS"],
+            },
+            "bytes": first_parent_with_a_predecessor(),
+        },
     ]
 
 
@@ -337,6 +448,17 @@ def tally(answer: dict) -> dict:
     }
 
 
+def log_with(change, line: int = -1) -> bytes:
+    """The valid log with one entry's fields changed, and nothing recomputed."""
+    lines = [
+        canonical.parse_document(one)
+        for one in fixture_parts()[PROVENANCE].split(b"\n")
+        if one
+    ]
+    change(lines[line])
+    return with_log(b"".join(canonical.canonical_document(one) for one in lines))
+
+
 def ask_reference(path: pathlib.Path) -> dict:
     """The reference command line's answer, taken as a black box."""
     try:
@@ -358,6 +480,14 @@ def ask_reference(path: pathlib.Path) -> dict:
     return json.loads(completed.stdout)
 
 
+def disagreements(case: dict, expected: dict, port: dict) -> list:
+    """The ways the port's answer is not the one the reference gave."""
+    return [
+        f"{case['name']}: the reference and the port disagree — {line}"
+        for line in differences(expected, port)
+    ]
+
+
 def contradictions(case: dict, expected: dict) -> list:
     """The ways the reference's answer is not the answer this case asks for."""
     problems = []
@@ -366,12 +496,20 @@ def contradictions(case: dict, expected: dict) -> list:
         problems.append(
             f"{case['name']}: this case asks for {asked['verdict']}, and the reference says {expected['verdict']}"
         )
-    for check_id, code in asked.get("fail", {}).items():
-        seen = expected["fail"].get(check_id)
-        if seen != code:
+    for group in ("fail", "unsupported"):
+        for check_id, code in asked.get(group, {}).items():
+            seen = expected[group].get(check_id)
+            if seen != code:
+                problems.append(
+                    f"{case['name']}: this case asks for {check_id}={code}, and the reference reports "
+                    f"{check_id}={seen if seen is not None else 'no such result'}"
+                )
+    for check_id in asked.get("pass", []):
+        seen = expected["fail"].get(check_id) or expected["unsupported"].get(check_id)
+        if seen is not None:
             problems.append(
-                f"{case['name']}: this case asks for {check_id}={code}, and the reference reports "
-                f"{check_id}={seen if seen is not None else 'no failure'}"
+                f"{case['name']}: this case asks for {check_id} to pass, and the reference reports "
+                f"{check_id}={seen}"
             )
     return problems
 
@@ -383,12 +521,14 @@ def build(quiet: bool) -> int:
 
     entries = []
     problems = []
+    refusals = []
     for case in cases:
         path = OUT_DIR / f"{case['name']}.charter"
         path.write_bytes(case["bytes"])
         answer = ask_reference(path)
-        expected = tally(answer)
+        expected = reference_tally(answer)
         problems.extend(contradictions(case, expected))
+        refusals.extend(disagreements(case, expected, port_tally(case["bytes"])))
         entries.append(
             {
                 "name": case["name"],
@@ -407,15 +547,25 @@ def build(quiet: bool) -> int:
                 f"skip={expected['skips']:<2} {failed}"
             )
 
-    if problems:
+    if problems or refusals:
         print("")
         for problem in problems:
             print(problem)
-        print(
-            f"\n{len(problems)} case(s) whose recorded answer is not the answer the case asks for. "
-            f"{RECORD_PATH.name} was not written: the format's answer and the reference's differ, and that is a "
-            "finding to settle in SPEC.md rather than a record to overwrite."
-        )
+        for refusal in refusals:
+            print(refusal)
+        if refusals:
+            print(
+                f"\n{len(refusals)} case(s) the two implementations do not agree about. "
+                f"{RECORD_PATH.name} was not written: a case whose answer depends on which "
+                "implementation you ask is a finding to settle in SPEC.md, and recording one of "
+                "the two answers would file it as settled."
+            )
+        if problems:
+            print(
+                f"\n{len(problems)} case(s) whose recorded answer is not the answer the case asks for. "
+                f"{RECORD_PATH.name} was not written: the format's answer and the reference's differ, and that is a "
+                "finding to settle in SPEC.md rather than a record to overwrite."
+            )
         return 1
 
     record = {

@@ -7,6 +7,10 @@
  * signature has 4 accepted spellings, and "one byte sequence per logical
  * value" would be false for the very field that carries the signature.
  *
+ * The empty string is not refused here. It is the one spelling of the empty byte
+ * string, and whether a *signature* may be one is a question about length — the
+ * caller's, and one it answers MALFORMED rather than NON_CANONICAL_ENCODING.
+ *
  * @module verifier/base64url
  */
 
@@ -25,9 +29,6 @@ const VALUES = (() => {
  * @returns {{ ok: true, value: Uint8Array } | { ok: false, detail: string }}
  */
 export function decodeBase64Url(text) {
-  if (text.length === 0) {
-    return { ok: false, detail: 'the value is empty' };
-  }
   if (text.includes('=')) {
     return { ok: false, detail: 'padding is present; canonical base64url is unpadded' };
   }

@@ -1,0 +1,1193 @@
+{
+  "corpus": "charter container corpus",
+  "format": "charter/0.1",
+  "built_by": "implementations/python/tools/corpus.py --build",
+  "base": {
+    "file": "../out/valid.charter",
+    "bytes": 1884,
+    "sha256": "e960972c0f8e9010a92f5bc78ee2137216ee5dcb4533a99a9affe3e70709c356"
+  },
+  "note": "Every artifact here is one hand-written change to vectors/out/valid.charter — or, in one case, two, because its question is about a file that is wrong in two places at once — and the answers are the ones the two implementations gave for it. `expected` is the reference command line's answer, `port` is implementations/python's, and `agreement` says whether they are the same answer: where they are not, the case is the finding this corpus exists to produce, and `note` says which implementation moved and why. Each case also carries the question it asks and the section of SPEC.md that answers it, or null where the section is silent. Nothing here is a conformance kit: the kit is vectors/out/ and it enforces; this is a finding tool that records what both implementations said.",
+  "cases": [
+    {
+      "name": "entry-name-uppercase",
+      "file": "out/entry-name-uppercase.charter",
+      "bytes": 1884,
+      "sha256": "ef01d951f94352f8ca8e932af174c891d69eebb20509e43f82b7c138a6a6d2ae",
+      "mutation": "`manifest.json` is renamed `MANIFEST.JSON` in the local header and in the directory record, so both copies still agree and only the set of names changed.",
+      "question": "The format names three entries and says a name identifies one entry. An archive whose names are the right names in the wrong case holds no `manifest.json`: is that the entry set's problem, and is it MISSING or EXTRA?",
+      "spec": "3.4",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.ZIP.ENTRY_SET": "MISSING"
+        }
+      },
+      "agreement": true,
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.ENTRY_SET": "MISSING"
+        },
+        "unsupported": {},
+        "skips": 12
+      },
+      "port": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.ENTRY_SET": "MISSING"
+        },
+        "unsupported": {},
+        "skips": 12
+      },
+      "note": "Both implementations agreed the first time. What the case separates is section 3.1's refusal from section 3.4's check: each local header still matches the name in the record that points at it, so the gate is happy, and `L0.ZIP.ENTRY_SET` is the check that reports the set of names — MISSING, its own requirement, which it reports before the extra name the archive also holds."
+    },
+    {
+      "name": "entry-order-reordered",
+      "file": "out/entry-order-reordered.charter",
+      "bytes": 1884,
+      "sha256": "78487ebc22f214f7932d141df1751147df229e36c9411f86b0672e6f8f269fcd",
+      "mutation": "The three entries are written in the order `content.md`, `provenance.jsonl`, `manifest.json`, in the body and in the directory, with every offset adjusted so the file is consistent.",
+      "question": "Section 3.4 fixes the order of the *categories* — header, data, directory, end record — and says nothing about the order of the entries themselves. Is a file whose entries appear in another order, described correctly by its own directory, still a charter?",
+      "spec": "3.4",
+      "asked": {
+        "verdict": "VERIFIED"
+      },
+      "agreement": true,
+      "expected": {
+        "verdict": "VERIFIED",
+        "exit_code": 0,
+        "fail": {},
+        "unsupported": {},
+        "skips": 0
+      },
+      "port": {
+        "verdict": "VERIFIED",
+        "exit_code": 0,
+        "fail": {},
+        "unsupported": {},
+        "skips": 0
+      },
+      "note": "Both agreed, and the agreement is the answer: the format fixes the order of the *kinds* of thing (header, data, directory, end record) and not the order of the entries, so a file whose entries are written in another order and described correctly by its own directory is a charter like any other. Section 3.4 now says so, because a reader could be forgiven for reading \"in that order\" as being about the entries."
+    },
+    {
+      "name": "entry-central-order-swapped",
+      "file": "out/entry-central-order-swapped.charter",
+      "bytes": 1884,
+      "sha256": "eb364dedd059a5444768b241b2c2387c63df218480983f00e3e294ef530eef41",
+      "mutation": "The three records in the central directory are written in the order `provenance.jsonl`, `content.md`, `manifest.json`. The body, the offsets and the end record are untouched.",
+      "question": "A writer that sorts its directory by name, or by anything else, produces this file. Does the format require the directory to list the entries in the order their local headers appear in the file?",
+      "spec": "3.4",
+      "asked": {
+        "verdict": "VERIFIED"
+      },
+      "agreement": true,
+      "expected": {
+        "verdict": "VERIFIED",
+        "exit_code": 0,
+        "fail": {},
+        "unsupported": {},
+        "skips": 0
+      },
+      "port": {
+        "verdict": "VERIFIED",
+        "exit_code": 0,
+        "fail": {},
+        "unsupported": {},
+        "skips": 0
+      },
+      "note": "One of the first run's eleven disagreements: the reference came back BROKEN with `L0.ZIP.LAYOUT`=EXTRA and the port VERIFIED. ZIP fixes no order for the records in the directory, and a writer that sorts them by name produces exactly this file, so the reference was over-strict — its layout walk took the directory's order for the file's and read the first record's offset as a gap. Section 3.4 now states that the rule is about byte ranges, and `verifier/zip.js`'s `evaluateLayout` walks them in file order. No kit artifact moves: no case in the kit lists its records in another order than its entries."
+    },
+    {
+      "name": "entry-fourth-unknown",
+      "file": "out/entry-fourth-unknown.charter",
+      "bytes": 2024,
+      "sha256": "054052ca8b6992d8bb9b1bc48f447c4adfb8cca509aae5a93e534c4e2bd523de",
+      "mutation": "A fourth entry, `attachments/note.txt`, is added: a local header and its data after the last entry, a record for it in the directory, and the end record's counts, size and offset adjusted.",
+      "question": "The format defines exactly three entries. Which check refuses a fourth, and with which reason code?",
+      "spec": "3.4",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.ZIP.ENTRY_SET": "EXTRA"
+        }
+      },
+      "agreement": true,
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.ENTRY_SET": "EXTRA"
+        },
+        "unsupported": {},
+        "skips": 0
+      },
+      "port": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.ENTRY_SET": "EXTRA"
+        },
+        "unsupported": {},
+        "skips": 0
+      },
+      "note": "Both agreed: EXTRA, `L0.ZIP.ENTRY_SET`'s word for a name the format does not define. The kit's `extra-entry` asks the same question about `notes.txt`; this case asks it about a name that looks like a path, which the format has no concept of either."
+    },
+    {
+      "name": "entry-central-record-twice",
+      "file": "out/entry-central-record-twice.charter",
+      "bytes": 1943,
+      "sha256": "613fb0483f17b641df9285500a9cd98e7f9ea7c7a4fdb9fb3084eeae2f96db31",
+      "mutation": "A second copy of `manifest.json`'s directory record is inserted before the end record, with the counts and the directory size adjusted to match. Both records name the same one local header.",
+      "question": "Two entries whose local headers claim the same offset: the second record describes bytes the first one already claims. Is that a range that overlaps another (a MISMATCH between two claims) or bytes where the format does not put them (EXTRA)?",
+      "spec": "3.4",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.ZIP.ENTRY_SET": "DUPLICATE",
+          "L0.ZIP.LAYOUT": "MISMATCH"
+        }
+      },
+      "agreement": true,
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.LAYOUT": "MISMATCH",
+          "L0.ZIP.ENTRY_SET": "DUPLICATE"
+        },
+        "unsupported": {},
+        "skips": 0
+      },
+      "port": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.LAYOUT": "MISMATCH",
+          "L0.ZIP.ENTRY_SET": "DUPLICATE"
+        },
+        "unsupported": {},
+        "skips": 0
+      },
+      "note": "Disagreed on the reason code: the reference reported `L0.ZIP.LAYOUT`=MISMATCH and the port EXTRA. Both saw the same thing — a second record naming the same local header, so two ranges claim the same bytes — and section 3.4 defined only EXTRA, \"bytes appear where the format does not put them\". Section 3.4 now distinguishes the two: a range that begins after the previous one ends is a gap and EXTRA, and a range that begins *inside* one already claimed is two claims about the same bytes and MISMATCH. The port's `check_layout` reports both."
+    },
+    {
+      "name": "flag-word-above-the-format",
+      "file": "out/flag-word-above-the-format.charter",
+      "bytes": 1884,
+      "sha256": "44ed89593e57cb207ee11701e5d56e0190b223347c9417f0a041616d1e636f46",
+      "mutation": "Both copies of every entry's header set general purpose bit 0x0010 as well as the UTF-8 name bit: a bit that is neither one of the three charter/0.1 allows nor one of the five that describe a feature with a name.",
+      "question": "The two copies agree, so no refusal applies; the bit is not one the format defines a meaning for, so no reader implements it either. Which reason code does `L0.ZIP.FLAGS` give a bit this format has no room for, and does the artifact come back broken or unproven?",
+      "spec": "3.3",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.ZIP.FLAGS": "EXTRA"
+        }
+      },
+      "agreement": true,
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.FLAGS": "EXTRA"
+        },
+        "unsupported": {},
+        "skips": 0
+      },
+      "port": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.FLAGS": "EXTRA"
+        },
+        "unsupported": {},
+        "skips": 0
+      },
+      "note": "Added in the same pass as the two flag cases below, and both implementations answered it the same way: a bit the format defines no meaning for is not a feature the reader declines (UNSUPPORTED) but a bit the format has no room for, which is EXTRA. It is the FAIL half of `L0.ZIP.FLAGS`, which the kit does not ask — `encrypted-flag` sets a bit the reader *does* know and reports UNSUPPORTED_FEATURE."
+    },
+    {
+      "name": "local-compressed-size-off-by-one",
+      "file": "out/local-compressed-size-off-by-one.charter",
+      "bytes": 1884,
+      "sha256": "902dd40cb7bf476e11b4fd9f5ef9600d709e900a212971e3711742d75a9a52e8",
+      "mutation": "`content.md`'s *local* header declares one byte more of compressed data than `content.md` holds. The directory record still declares the real size.",
+      "question": "ZIP states the compressed size twice. The bytes the entry holds are the ones the directory names, and the local header says another number: which check owns the disagreement?",
+      "spec": "3.6",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.ZIP.METADATA": "MISMATCH"
+        }
+      },
+      "agreement": true,
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.METADATA": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      },
+      "port": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.METADATA": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      },
+      "note": "Both agreed: MISMATCH from `L0.ZIP.METADATA`, the check that owns the agreement between the two copies of a claim. The compressed size is the field with no check of its own — section 3.5 makes the *uncompressed* size and the CRC-32 claims about the bytes — so this is the case where the agreement rule is the only thing between a reader and an entry whose data ends where its own local header says rather than where the directory says."
+    },
+    {
+      "name": "local-uncompressed-size-off-by-one",
+      "file": "out/local-uncompressed-size-off-by-one.charter",
+      "bytes": 1884,
+      "sha256": "4e00cfd979469a310a1075a5f45b0affdef6141a5b12e694642495c701cc6409",
+      "mutation": "`content.md`'s local header declares one byte more of data than it holds uncompressed. The directory record still declares the real size.",
+      "question": "The same disagreement, about the other size. Section 3.5 makes the declared *uncompressed* size a claim about the bytes; does the local copy's disagreement with the directory belong to the check that measures the bytes, or to the check that compares the two copies?",
+      "spec": "3.6",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.ZIP.METADATA": "MISMATCH"
+        }
+      },
+      "agreement": true,
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.METADATA": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      },
+      "port": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.METADATA": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      },
+      "note": "Disagreed: both reported `L0.ZIP.METADATA`=MISMATCH and the port *also* reported `L0.ZIP.SIZES`=MISMATCH, because it measured the local header's copy of the size as well as the directory's. One edited header was reported twice, and by a check whose requirement — \"the declared size is the real one\" — is satisfied by the copy the file's own directory states. Section 3.5 now says that both `L0.ZIP.SIZES` and `L0.ZIP.CRC32` read the directory's copy and that the agreement between the copies is `L0.ZIP.METADATA`'s, and the port does."
+    },
+    {
+      "name": "local-method-deflate-declared",
+      "file": "out/local-method-deflate-declared.charter",
+      "bytes": 1884,
+      "sha256": "bb06360485443ac8b6c8e6dda18cf9aeefc0e42175cb61420ea060592d1c3eb5",
+      "mutation": "`content.md` is stored, and its local header declares method 8 (raw deflate). The directory record still declares method 0, and the bytes are untouched.",
+      "question": "A reader that trusted the local header would try to inflate bytes that are not deflated. Which check refuses the two copies disagreeing about the method — and does the reader have to agree with itself about the method before it reads anything, the way it does about flags?",
+      "spec": "3.6",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.ZIP.METADATA": "MISMATCH"
+        }
+      },
+      "agreement": true,
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.METADATA": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      },
+      "port": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.METADATA": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      },
+      "note": "Both agreed: MISMATCH from `L0.ZIP.METADATA`. Worth recording that the reader does *not* refuse this one, though a reader that trusted the local header would try to inflate stored bytes: the method is a claim the file makes twice, and two copies disagreeing is that check's sentence. The case is also the answer to \"why is the method not refused with the flags?\" — a reader that guesses wrong about a method fails to decode one entry, while a reader that guesses wrong about a flag word cannot know what it is reading at all."
+    },
+    {
+      "name": "local-crc-zeroed",
+      "file": "out/local-crc-zeroed.charter",
+      "bytes": 1884,
+      "sha256": "5c1bd5424fc6c64ea17ed4869f8e318a33d5b678ff1e68483be96683142eb981",
+      "mutation": "`content.md`'s local header declares CRC-32 0. The directory record still declares the real checksum.",
+      "question": "Zero is a valid CRC-32 and the wrong one. Is that the checksum check's complaint, the size check's, or the rule that the two copies of a claim agree?",
+      "spec": "3.6",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.ZIP.METADATA": "MISMATCH"
+        }
+      },
+      "agreement": true,
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.METADATA": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      },
+      "port": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.METADATA": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      },
+      "note": "Disagreed in the same way as `local-uncompressed-size-off-by-one`: the reference reported `L0.ZIP.METADATA`=MISMATCH and the port reported that and `L0.ZIP.CRC32`=MISMATCH as well, because it read the local copy of the checksum too. Section 3.5's new paragraph settled it — both checks read the directory's copy — and the port's `check_crc32` now does."
+    },
+    {
+      "name": "local-flag-allowed-bit-set",
+      "file": "out/local-flag-allowed-bit-set.charter",
+      "bytes": 1884,
+      "sha256": "3e4c1a9bcb85cdab2930a8f6a8e8c28328ad03c5de856ff3456a823a0246154e",
+      "mutation": "`content.md`'s local header sets general purpose bit 0x0002 as well as the UTF-8 name bit. The directory record keeps the flag word it had.",
+      "question": "0x0002 is one of the three bits the format allows, so nothing about *what the bit says* is wrong; what is wrong is that the two headers disagree about it. Section 3.6 says the reader refuses on a flag disagreement rather than reporting it — is this archive broken, or unproven, or is every bit it sets acceptable?",
+      "spec": "3.6",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.ZIP.READABLE": "MISMATCH"
+        }
+      },
+      "agreement": true,
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.READABLE": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 29
+      },
+      "port": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.READABLE": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 29
+      },
+      "note": "The case that found the largest hole of the pass: the port came back VERIFIED. Every bit the file sets is one the format allows, so `L0.ZIP.FLAGS` had nothing to refuse, and the port never compared the two flag words — so an archive whose headers disagreed about a bit nobody minds was called a valid charter. Section 3.6 has said since the first pass that the reader \"has to agree with itself about flags before it can decode anything, and refuses there instead\", and the reference does; section 3.3 now puts that sentence where the flag word is described, and the port's walk refuses a disagreement with MISMATCH at `L0.ZIP.READABLE`."
+    },
+    {
+      "name": "local-flag-unsupported-bit-set",
+      "file": "out/local-flag-unsupported-bit-set.charter",
+      "bytes": 1884,
+      "sha256": "7ff8dcd6f64f72019b7c5c48f8d832b4b8e6f2adabd36b01e06ab3a75ab74279",
+      "mutation": "`content.md`'s local header sets general purpose bit 0x0001 (encryption) as well as the UTF-8 name bit. The directory record keeps the flag word it had.",
+      "question": "Two readings of this file are possible: the reader refuses because the two flag words disagree, or it reads a flag word that describes encryption and reports a feature it does not implement. Which of the two is the reading the format requires, and which check carries the answer?",
+      "spec": "3.6",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.ZIP.READABLE": "MISMATCH"
+        }
+      },
+      "agreement": true,
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.READABLE": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 29
+      },
+      "port": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.READABLE": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 29
+      },
+      "note": "Disagreed too: the reference refused the disagreement (MISMATCH at the gate, 29 checks never reached) and the port read the local flag word, found encryption there, and reported `L0.ZIP.FLAGS`=UNSUPPORTED_FEATURE with nothing skipped. Both are recognisable readings, and sections 3.3 and 3.6 settle the order: a reader that has not agreed with itself about flags cannot say what it is reading, so the disagreement is the answer and what the bit says is nobody's question yet. The pair of flag cases is the two halves of that order."
+    },
+    {
+      "name": "central-offset-to-other-header",
+      "file": "out/central-offset-to-other-header.charter",
+      "bytes": 1884,
+      "sha256": "fba0bbf604c599a41aa5f3e7740ef639d1ebaf8c6b7bee88e8edcbb068f3bd57",
+      "mutation": "`content.md`'s directory record points at `manifest.json`'s local header: the offset is 0, where a well-formed local header lives under another name.",
+      "question": "Section 3.1 requires the local header's name to be byte-for-byte the directory's name. Two claims about one thing disagree — is that MALFORMED, the bytes not being what the format requires, or MISMATCH, a value not being the value it must be?",
+      "spec": "3.1",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.ZIP.READABLE": "MISMATCH"
+        }
+      },
+      "agreement": true,
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.READABLE": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 29
+      },
+      "port": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.READABLE": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 29
+      },
+      "note": "Both refused the file and disagreed about the word for it: the reference said `L0.ZIP.READABLE`=MISMATCH and the port MALFORMED. Section 3.1 named neither, so both were defensible; 3.1 now says MALFORMED is for bytes that are not the shape the format requires and MISMATCH is for a value the file states twice and states differently — a name in a record and a name in the header it points at are exactly that — and the port's `_local_header` uses MISMATCH."
+    },
+    {
+      "name": "central-offset-to-data",
+      "file": "out/central-offset-to-data.charter",
+      "bytes": 1884,
+      "sha256": "38101e10702c57abade8658f14781a3f2770792244b5fdcc3d243942fec76644",
+      "mutation": "`content.md`'s directory record points at the first data byte of `manifest.json`, where there is no local header at all.",
+      "question": "The offset names no header: there is no signature there and no name to compare. One FAIL and 29 checks that were never reached, with which reason code?",
+      "spec": "3.1",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.ZIP.READABLE": "MALFORMED"
+        }
+      },
+      "agreement": true,
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.READABLE": "MALFORMED"
+        },
+        "unsupported": {},
+        "skips": 29
+      },
+      "port": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.READABLE": "MALFORMED"
+        },
+        "unsupported": {},
+        "skips": 29
+      },
+      "note": "Both agreed: MALFORMED. This is the boundary the case above draws, seen from the other side — the offset names no header at all, so there is no second claim to disagree with, and the bytes are simply not the shape the format requires."
+    },
+    {
+      "name": "central-offset-past-eof",
+      "file": "out/central-offset-past-eof.charter",
+      "bytes": 1884,
+      "sha256": "0910ec32cf7f2d7d74750956ad1cf0d801316cfca4bd260787d268f60940145e",
+      "mutation": "`content.md`'s directory record points 64 bytes past the end of the file.",
+      "question": "An offset that is inside the file's address space and outside its bytes. Which reason code does a reader that will not guess report?",
+      "spec": "3.1",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.ZIP.READABLE": "MALFORMED"
+        }
+      },
+      "agreement": true,
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.READABLE": "MALFORMED"
+        },
+        "unsupported": {},
+        "skips": 29
+      },
+      "port": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.READABLE": "MALFORMED"
+        },
+        "unsupported": {},
+        "skips": 29
+      },
+      "note": "Both agreed: MALFORMED. There is nothing at that offset to compare a name or a flag word with, so the refusal is not about a disagreement."
+    },
+    {
+      "name": "local-extra-entry-uncounted",
+      "file": "out/local-extra-entry-uncounted.charter",
+      "bytes": 1947,
+      "sha256": "8eea5b1358f6c0eddd032f04a40043f3ad79f54e65f5a609ba84b1b1d9c32e90",
+      "mutation": "A local header and its data are inserted between the last entry and the directory, and the end record's directory offset is moved past them. No record in the directory names them.",
+      "question": "This is the archive section 3.4 exists to refuse: a second document nobody's table mentions. Section 3.4 states why it matters and does not say whether a gap is EXTRA bytes or a MISMATCH; the answer is one of the two, and both readers have to give the same one.",
+      "spec": "3.4",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.ZIP.LAYOUT": "EXTRA"
+        }
+      },
+      "agreement": true,
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.LAYOUT": "EXTRA"
+        },
+        "unsupported": {},
+        "skips": 0
+      },
+      "port": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.LAYOUT": "EXTRA"
+        },
+        "unsupported": {},
+        "skips": 0
+      },
+      "note": "Both agreed: EXTRA. This is the archive section 3.4 exists for — a document no table in the file names, sitting between the last entry and the directory — and it is the case the reason code was written for: bytes the format does not account for."
+    },
+    {
+      "name": "eocd-count-off-by-one",
+      "file": "out/eocd-count-off-by-one.charter",
+      "bytes": 1884,
+      "sha256": "d77bbce1467d33a7f94b981c65ba8ffc0fb4ed84063c3dddde234d4b05773c0a",
+      "mutation": "The end record declares four entries in total; three are in the directory and the third is followed by the end record itself.",
+      "question": "Section 3.1 says the end record describes a directory that declares exactly as many entries as it contains. What does a reader do when the count and the bytes disagree?",
+      "spec": "3.1",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.ZIP.READABLE": "MALFORMED"
+        }
+      },
+      "agreement": true,
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.READABLE": "MALFORMED"
+        },
+        "unsupported": {},
+        "skips": 29
+      },
+      "port": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.READABLE": "MALFORMED"
+        },
+        "unsupported": {},
+        "skips": 29
+      },
+      "note": "Both agreed: MALFORMED, section 3.1's sentence about declaring exactly as many entries as the directory contains. The two implementations arrive there by different roads — the reference compares the record's two counts with each other, the port reads the fourth record it was promised and finds the end record's signature where a directory record should be — and the reason code is what makes those the same answer."
+    },
+    {
+      "name": "eocd-cd-offset-wrong",
+      "file": "out/eocd-cd-offset-wrong.charter",
+      "bytes": 1884,
+      "sha256": "99f05a320d56bcd81f025950198a63cebe38029327e173cdbcdcaa4dd72dc0a5",
+      "mutation": "The end record declares the central directory four bytes further along than it is, so the first record the reader takes starts inside the real one.",
+      "question": "The declared directory starts where no record starts. Is this the legibility gate's refusal or the layout check's failure, and does the same reason code come back from both implementations?",
+      "spec": "3.1",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.ZIP.READABLE": "MALFORMED"
+        }
+      },
+      "agreement": true,
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.READABLE": "MALFORMED"
+        },
+        "unsupported": {},
+        "skips": 29
+      },
+      "port": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.READABLE": "MALFORMED"
+        },
+        "unsupported": {},
+        "skips": 29
+      },
+      "note": "Both agreed: MALFORMED. The directory's offset is a claim in the file, and the first record it names does not begin where the file says it does."
+    },
+    {
+      "name": "eocd-cd-size-wrong",
+      "file": "out/eocd-cd-size-wrong.charter",
+      "bytes": 1884,
+      "sha256": "f3550b7130c063e0f883a63242e03bdd6839dee5c98351104153f36fa8d88fc5",
+      "mutation": "The end record declares the central directory two bytes shorter than the records in it use. Every record, every offset and every count is otherwise exactly what it was.",
+      "question": "The start and the end of the records themselves are fine; one number that describes their extent is not. A reader that reads the records and never the number sees a perfect file. Which check owns the declared extent of the directory, and is it a failure or a pass?",
+      "spec": "3.4",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.ZIP.LAYOUT": "MISMATCH"
+        }
+      },
+      "agreement": true,
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.LAYOUT": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      },
+      "port": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.LAYOUT": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      },
+      "note": "Disagreed, and this is the case that closed the hole section 3.6's own rule names: the port came back VERIFIED. It read the directory's declared size and never compared it with the records inside it, so a byte nobody looks at could be changed for free — the exact thing the last paragraph of 3.6 is about. The reference has always reported `L0.ZIP.LAYOUT`=MISMATCH for it; section 3.4 now states the comparison among the three facts the layout rule reads, and the port's `check_layout` makes it."
+    },
+    {
+      "name": "eocd-bytes-appended",
+      "file": "out/eocd-bytes-appended.charter",
+      "bytes": 1900,
+      "sha256": "8863afdb773efbb0d0ac0cbfe18d74e042c49f035dfac5adaeaa4fa225ec55c0",
+      "mutation": "Sixteen bytes of text follow the end record, and the end record's comment length stays zero, so nothing in the file claims them.",
+      "question": "Section 3.4 says nothing sits after the end record and there is no archive comment. Bytes after the archive are the case that rule names; which reason code do both readers give them?",
+      "spec": "3.4",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.ZIP.LAYOUT": "EXTRA"
+        }
+      },
+      "agreement": true,
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.LAYOUT": "EXTRA"
+        },
+        "unsupported": {},
+        "skips": 0
+      },
+      "port": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.LAYOUT": "EXTRA"
+        },
+        "unsupported": {},
+        "skips": 0
+      },
+      "note": "Both agreed: EXTRA. Both implementations find the end record by scanning backwards rather than trusting the file's length, which is why these bytes are reported as bytes after the archive rather than read as an archive comment."
+    },
+    {
+      "name": "eocd-zip64-marker",
+      "file": "out/eocd-zip64-marker.charter",
+      "bytes": 1884,
+      "sha256": "1f4544bf36df3fbd577b5e5c569cc6cb0f40f78afedd019eeec341695ffdcbfc",
+      "mutation": "The end record's two entry counts are 0xFFFF, the value ZIP64 uses to say that the real counts are in a ZIP64 record this file does not carry.",
+      "question": "Section 3.2 says this format implements no ZIP64 and reports it as UNSUPPORTED. Which check reports it when the marker is in the end record, and is the artifact broken or unproven?",
+      "spec": "3.2",
+      "asked": {
+        "verdict": "INCOMPLETE",
+        "unsupported": {
+          "L0.ZIP.READABLE": "UNSUPPORTED_VERSION"
+        }
+      },
+      "agreement": true,
+      "expected": {
+        "verdict": "INCOMPLETE",
+        "exit_code": 1,
+        "fail": {},
+        "unsupported": {
+          "L0.ZIP.READABLE": "UNSUPPORTED_VERSION"
+        },
+        "skips": 29
+      },
+      "port": {
+        "verdict": "INCOMPLETE",
+        "exit_code": 1,
+        "fail": {},
+        "unsupported": {
+          "L0.ZIP.READABLE": "UNSUPPORTED_VERSION"
+        },
+        "skips": 29
+      },
+      "note": "Disagreed, and on more than a word: the reference came back INCOMPLETE with `L0.ZIP.READABLE`=UNSUPPORTED_VERSION and the port came back BROKEN, its gate having reported MALFORMED. Section 3.2 said \"reports UNSUPPORTED for ZIP64\" without saying which check, and section 10.2 gave `L0.ZIP.VERSION` \"the end record's two version facts\" — a reading the port followed and the reference never did. The settled reading is the reference's, for section 10.1's reason: the fact VERSION needs is the walk, and a directory this reader will not interpret is a fact nobody established. Sections 3.2 and 10.2 now say so, and the port's walk detects the markers."
+    },
+    {
+      "name": "eocd-multi-disk",
+      "file": "out/eocd-multi-disk.charter",
+      "bytes": 1884,
+      "sha256": "093af36fd1802ad54bdda373b8527017a9c572ff0a67e6eb6a2c264525e1147c",
+      "mutation": "The end record declares that this archive is disk 1 of a set. Everything else in the file is the valid artifact.",
+      "question": "Section 3.2 says the format is one disk and reports a multi-disk archive as UNSUPPORTED. The offsets in this file are usable by a single-disk reader, so a reader *can* walk it: does it walk it and report the disk facts from `L0.ZIP.VERSION`, or refuse at the gate?",
+      "spec": "3.2",
+      "asked": {
+        "verdict": "INCOMPLETE",
+        "unsupported": {
+          "L0.ZIP.READABLE": "UNSUPPORTED_FEATURE"
+        }
+      },
+      "agreement": true,
+      "expected": {
+        "verdict": "INCOMPLETE",
+        "exit_code": 1,
+        "fail": {},
+        "unsupported": {
+          "L0.ZIP.READABLE": "UNSUPPORTED_FEATURE"
+        },
+        "skips": 29
+      },
+      "port": {
+        "verdict": "INCOMPLETE",
+        "exit_code": 1,
+        "fail": {},
+        "unsupported": {
+          "L0.ZIP.READABLE": "UNSUPPORTED_FEATURE"
+        },
+        "skips": 29
+      },
+      "note": "Disagreed about which check answers. The offsets in this file are usable, so the port walked it — nothing skipped — and reported `L0.ZIP.VERSION`=UNSUPPORTED_FEATURE; the reference refused at the gate with the same code and left 29 checks unrun. Section 3.2 now settles it the reference's way: a file that says it is one disk of a set is a file whose offsets may belong to another disk, so there is nothing here to walk, and VERSION keeps the feature level an *entry* declares."
+    },
+    {
+      "name": "entry-version-needed-zip64",
+      "file": "out/entry-version-needed-zip64.charter",
+      "bytes": 1884,
+      "sha256": "9ad687f38a936591c2c1120b899aa4f55ccdccd0acf4e851991c4bc5cb479237",
+      "mutation": "`content.md` declares in both copies of its header that it needs ZIP feature level 4.5 (version needed 45), which is the level ZIP64 was introduced at.",
+      "question": "The archive is legible and the entry is readable, so this is `L0.ZIP.VERSION`'s row. Is a feature level the verifier does not implement UNSUPPORTED_VERSION or UNSUPPORTED_FEATURE, and does the answer have to be the same for both implementations?",
+      "spec": "3.2",
+      "asked": {
+        "verdict": "INCOMPLETE",
+        "unsupported": {
+          "L0.ZIP.VERSION": "UNSUPPORTED_VERSION"
+        }
+      },
+      "agreement": true,
+      "expected": {
+        "verdict": "INCOMPLETE",
+        "exit_code": 1,
+        "fail": {},
+        "unsupported": {
+          "L0.ZIP.VERSION": "UNSUPPORTED_VERSION"
+        },
+        "skips": 0
+      },
+      "port": {
+        "verdict": "INCOMPLETE",
+        "exit_code": 1,
+        "fail": {},
+        "unsupported": {
+          "L0.ZIP.VERSION": "UNSUPPORTED_VERSION"
+        },
+        "skips": 0
+      },
+      "note": "Disagreed on the reason code once the two cases above were settled: both implementations report `L0.ZIP.VERSION` and the reference says UNSUPPORTED_VERSION where the port said UNSUPPORTED_FEATURE. A feature level above 2.0 is a *version* this verifier does not implement, the same code 3.2 gives the ZIP64 marker in an end record; 3.2 now says the two are one voice, and the port's `check_version` uses it. The same edit removed the port's reading of a bare `0xFFFFFFFF` size field as ZIP64 — that is a ceiling, and section 3.7 gives it to the check that would read the bytes."
+    },
+    {
+      "name": "central-compressed-size-past-eof",
+      "file": "out/central-compressed-size-past-eof.charter",
+      "bytes": 1884,
+      "sha256": "f35dafd87b6e089e3041e2107065539cfd0799bd6dcd7e3468941ecbfc52e41a",
+      "mutation": "`content.md`'s directory record declares 100,000 bytes of compressed data, far more than the file holds after it.",
+      "question": "The declared size is larger than the bytes remaining, and smaller than the format's ceiling for one entry, so both rules about it are in play. Which one decides, and does the local header's copy of the size matter here?",
+      "spec": "3.1",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.ZIP.READABLE": "MALFORMED"
+        }
+      },
+      "agreement": true,
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.READABLE": "MALFORMED"
+        },
+        "unsupported": {},
+        "skips": 29
+      },
+      "port": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.READABLE": "MALFORMED"
+        },
+        "unsupported": {},
+        "skips": 29
+      },
+      "note": "Both agreed: MALFORMED. The size is inside the format's ceiling for one entry, so the only rule it breaks is 3.1's — the bytes it names are not in the file."
+    },
+    {
+      "name": "central-compressed-size-above-ceiling",
+      "file": "out/central-compressed-size-above-ceiling.charter",
+      "bytes": 1884,
+      "sha256": "9a34bf5842c9359c3fea3ef814d16b2d57409d38ee686ec1274c26d9588923d3",
+      "mutation": "Both copies of `content.md`'s header declare 0xFFFFFFFF compressed bytes: the value a ZIP64 writer would leave behind, and a number far above the ceiling section 3.7 sets for one entry.",
+      "question": "Two rules could answer this and only one of them can be reported: the bytes the size names are not in the file, and the size is above the declared ceiling. Section 3.7 says a limit is checked before the work it bounds — but this file cannot be walked far enough to do that work. Which failure arrives, and is it LIMIT_EXCEEDED?",
+      "spec": "3.1",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.ZIP.READABLE": "MALFORMED"
+        }
+      },
+      "agreement": true,
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.READABLE": "MALFORMED"
+        },
+        "unsupported": {},
+        "skips": 29
+      },
+      "port": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.READABLE": "MALFORMED"
+        },
+        "unsupported": {},
+        "skips": 29
+      },
+      "note": "Added in the same pass as the case below, and both implementations answer it the same way now that the port has stopped comparing an entry's ceiling inside its walk. It is the order of two rules: the bytes a size names are not in the file (3.1, the gate), and a size above a ceiling is refused before the work it bounds (3.7, the check that would do that work). The walk cannot reach the second question here, so the first is the answer — and 3.7 now says that LIMIT_EXCEEDED is for a size this verifier refuses to work on, not for a size the file cannot honour."
+    },
+    {
+      "name": "entry-uncompressed-size-above-ceiling",
+      "file": "out/entry-uncompressed-size-above-ceiling.charter",
+      "bytes": 1884,
+      "sha256": "0dfef1ae33ef85db39c068465398535351a9e7ac20df7594d92351dfe2df20f1",
+      "mutation": "Both copies of `content.md`'s header declare 0xFFFFFFFF uncompressed bytes. The compressed size, the CRC-32 and the bytes themselves are untouched.",
+      "question": "This one *can* be walked: the declared uncompressed size is a claim about bytes the file does not hold that many of, and it is above the ceiling. Section 3.7 says an entry's declared size is compared before it is inflated, so which check reports it, and which checks are left unproven behind it?",
+      "spec": "3.7",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.ZIP.ENTRY_DATA": "LIMIT_EXCEEDED"
+        }
+      },
+      "agreement": true,
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.ENTRY_DATA": "LIMIT_EXCEEDED"
+        },
+        "unsupported": {},
+        "skips": 4
+      },
+      "port": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.ENTRY_DATA": "LIMIT_EXCEEDED"
+        },
+        "unsupported": {},
+        "skips": 4
+      },
+      "note": "Added with the case above, because this one *can* be walked and so reaches the ceiling: `L0.ZIP.ENTRY_DATA` reports LIMIT_EXCEEDED and the two checks that would measure the bytes are SKIP behind it, which is section 10.1 applied to a refusal. Section 3.7 said the ceiling is compared before the work it bounds and did not say which check carries the answer; it does now, and both implementations agree."
+    },
+    {
+      "name": "entry-extra-len-off-by-one",
+      "file": "out/entry-extra-len-off-by-one.charter",
+      "bytes": 1888,
+      "sha256": "728eb0b93ed5283507fe55ae1792866b44e543751fa9ee94a655fb856a7905db",
+      "mutation": "`provenance.jsonl`'s local header carries a four-byte extra field between its name and its data and declares `extra_len` 5, so the header says the entry's data begins one byte after where the file puts it. Every offset the insertion moved — the directory's own, in the end record — moved with it, so nothing else in the file is wrong.",
+      "question": "The extra field is one byte shorter than the header declares it, so a reader that trusts the declared length reads one byte of the entry's data as part of the extra field and puts the entry's end one byte past where the file puts it. Is that end one byte inside the central directory, which makes the entry and the directory two claims about one byte, or is it a gap the format does not account for?",
+      "spec": "3.4",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.ZIP.LAYOUT": "MISMATCH"
+        }
+      },
+      "agreement": true,
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.LAYOUT": "MISMATCH",
+          "L0.ZIP.CRC32": "MISMATCH",
+          "L0.PROVENANCE.PARSE": "MALFORMED"
+        },
+        "unsupported": {},
+        "skips": 11
+      },
+      "port": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.LAYOUT": "MISMATCH",
+          "L0.ZIP.CRC32": "MISMATCH",
+          "L0.PROVENANCE.PARSE": "MALFORMED"
+        },
+        "unsupported": {},
+        "skips": 11
+      },
+      "note": "Both implementations agreed, and section 3.4 did not say which of its two sentences this is — which is what the case was built to find. Both reported `L0.ZIP.LAYOUT`=EXTRA, the code 3.4 gives a *gap*, because both compare the directory's declared offset with where the ranges end in one comparison with one code and no direction; `verifier/zip.js` even measured that difference with `Math.abs`, which is how a reader can tell the author knew it could be negative. The bytes here are not a gap: the last entry's declared data runs one byte into the directory, so the entry and the directory are two claims about one byte, which is 3.4's overlap and MISMATCH. Section 3.4 now states both directions — EXTRA when the ranges end before the directory, because the bytes between them and it are accounted for by nothing, and MISMATCH when a range ends after it — and `evaluateLayout` and the port's `check_layout` each report the direction they are in. The neighbouring question the case raises is answered from the other side: the same artifact with the extra field declared honestly comes back VERIFIED from both implementations, so a charter may carry an extra field, 3.4 accounts for its bytes, and nothing reads its contents."
+    },
+    {
+      "name": "entry-name-length-copies-differ",
+      "file": "out/entry-name-length-copies-differ.charter",
+      "bytes": 1884,
+      "sha256": "a052bc4606dfec9c754fb616fe9b4e4c6bb9fcb945bd169e50b43a080069e634",
+      "mutation": "`content.md`'s local header declares `name_len` 11, where the name beside it is 10 bytes and the directory's record states 10, so the file states one name twice and states its length differently each time.",
+      "question": "The name is stated twice with two lengths, and that length is also where a reader looks for the entry's data: the name comparison fails at the end of the name, and the size comparison would fail one byte later, at the end of the entry. Which of the two does the artifact reach, and does a reader that learns the first of them ever learn the second?",
+      "spec": "3.1",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.ZIP.READABLE": "MISMATCH"
+        }
+      },
+      "agreement": true,
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.READABLE": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 29
+      },
+      "port": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.READABLE": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 29
+      },
+      "note": "Both agreed the first time, and the agreement is the answer to the half of the question that a second artifact cannot ask: the artifact stops at the name. Section 3.1 already said the local header's name has to be the directory's name byte for byte, and that two claims about one fact which differ are MISMATCH, so what this case adds is the order — the data offset the declared length moves is never reached, because a reader that has not agreed with itself about the name does not know which bytes are the sizes. That is the same order 3.1 now fixes for the directory as a whole, one record down. Both directions were built by hand, 11 and 9 against the 10 the name has, and both land on MISMATCH at the gate with 29 checks never run."
+    },
+    {
+      "name": "entry-byte-deleted-mid-directory",
+      "file": "out/entry-byte-deleted-mid-directory.charter",
+      "bytes": 1883,
+      "sha256": "e30ab01b5aa26ff46d9dfbe21110807523c50e6552b45f8e745f926825e556f9",
+      "mutation": "One byte is removed from the middle of the central directory — the first byte of the middle record's name — so every later record is one byte earlier while the count, every record's offset, and the size the directory declares for itself are exactly what they were.",
+      "question": "Every number the file states about its directory still says what it said, and the bytes no longer hold three records. Does a reader that compares each record's name as it reads it report the name it was given, or report that the directory is not the shape the file declares?",
+      "spec": "3.1",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.ZIP.READABLE": "MALFORMED"
+        }
+      },
+      "agreement": true,
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.READABLE": "MALFORMED"
+        },
+        "unsupported": {},
+        "skips": 29
+      },
+      "port": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.READABLE": "MALFORMED"
+        },
+        "unsupported": {},
+        "skips": 29
+      },
+      "note": "Disagreed, and it is the case this pass was told to expect: the reference came back MALFORMED and the port MISMATCH. The reference reads every record in the directory before it compares any record's name with the local header that record points at; the port compared each name as it walked, so it reported the name it read at an offset its own walk had already broken — a record whose position the file no longer states — and never said the plainer thing, which is that the directory does not hold the three records it declares. Section 3.1 now fixes the order, which is the order its own paragraph states, and the port's `walk` reads the whole directory in one pass and resolves local headers in a second. The other deletion points were built by hand too: a byte removed from the last record's name is MISMATCH in both implementations, because the walk finishes and the name it compares is one the file states."
+    },
+    {
+      "name": "entry-name-not-utf8",
+      "file": "out/entry-name-not-utf8.charter",
+      "bytes": 1884,
+      "sha256": "3da5de9b6f4bf358a58b38d9c5aefc40d489bd4b0249569c860483bf968291a3",
+      "mutation": "The first byte of `content.md`'s name, in the local header and in the directory record, is set to `0xFF`: a byte that cannot stand alone in UTF-8, so both copies still agree and the name is no longer a string.",
+      "question": "The two copies agree, so no claim about this entry stands in two places with one of them false. Is a name whose bytes are not UTF-8 a name this reader has — one that is simply not one of the three — or is it a name the reader cannot read at all, which is a question about the archive rather than about the entry set?",
+      "spec": "3.1",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.ZIP.READABLE": "DECODE_ERROR"
+        }
+      },
+      "agreement": true,
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.READABLE": "DECODE_ERROR"
+        },
+        "unsupported": {},
+        "skips": 29
+      },
+      "port": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.READABLE": "DECODE_ERROR"
+        },
+        "unsupported": {},
+        "skips": 29
+      },
+      "note": "Found by hand while building the three cases above, and it was not a difference of wording: the reference refused at the gate with `L0.ZIP.READABLE`=DECODE_ERROR and 29 checks never run, and the port decoded the name with replacement characters, carried on, and reported `L0.ZIP.ENTRY_SET`=MISSING with 2 checks never run. No case in the kit or in the probe asks this, and section 3.1 did not answer it: it said the two copies of a name are compared byte for byte and said nothing about whether a name has to be a string at all. 3.1 now does, in the order the walk needs it — an entry's name is a UTF-8 string, DECODE_ERROR is the code when it is not, and the reason is that the entry set is a claim about names, so a reader that cannot read a name cannot say which entry it read — and the port decodes each record's name as it walks. The same sentence settles the variant where only the directory's copy is unreadable: the reference answers DECODE_ERROR before it compares the two copies, and so does the port now."
+    },
+    {
+      "name": "entry-version-needed-local-only",
+      "file": "out/entry-version-needed-local-only.charter",
+      "bytes": 1884,
+      "sha256": "eb604e8676dcfe5a4f5dc37cf36b5410f2a07a74ec5de087f274a6df1cd2eea4",
+      "mutation": "`content.md`'s local header declares feature level 0xFFFF, the ZIP64 marker, where the directory's record for the same entry states 20 (2.0), and the entry's bytes are stored exactly as they were.",
+      "question": "One copy of the claim says the entry needs ZIP64 and the other says it needs nothing above 2.0. Is the answer a version this verifier does not implement, or is the value one nobody can establish — and which copy does the check read in the first place?",
+      "spec": "3.2",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.ZIP.METADATA": "MISMATCH"
+        }
+      },
+      "agreement": true,
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.METADATA": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      },
+      "port": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.METADATA": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      },
+      "note": "Disagreed, and it is the same question one field over from the size and CRC-32 cases of the first pass: which copy of a repeated claim a check reads. The reference reported `L0.ZIP.METADATA`=MISMATCH and left `L0.ZIP.VERSION` passing, because it reads the directory's copy of the feature level; the port read `max(central, local)` and reported `L0.ZIP.VERSION`=UNSUPPORTED_VERSION as well, so one entry's local header could add a declaration of an unimplemented feature to a verdict that was already `BROKEN` for a different reason. Section 3.2 now says which copy — the directory's, which is the copy section 3.5 makes authoritative for every claim the file states twice, so two copies that disagree are METADATA's and a reader that took the higher of the two would report a level the entry may not need — and the port's `check_version` reads `entry.version_needed`. The direction is the part worth keeping: the two copies are not two opinions, they are one claim written twice, and a reader that picks the larger of them has invented a requirement."
+    },
+    {
+      "name": "central-extra-len-past-eof",
+      "file": "out/central-extra-len-past-eof.charter",
+      "bytes": 1884,
+      "sha256": "bbcb75eb2c3efed206fe44bff1c9fe3f5db8139d0a00ab0974206960dc4859b8",
+      "mutation": "The directory's record for `provenance.jsonl` declares 0xFFFF bytes of extra field, so the record's declared extent reaches far past the end of the file while the count, every offset, and the size the directory declares for itself are untouched.",
+      "question": "Every field of the record is readable where the file puts it, and the bytes it says follow them are not in the file. Is that a record that runs past the file, which the gate refuses and nothing else can then say anything about, or a directory whose records use more bytes than the directory declares for itself?",
+      "spec": "3.4",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.ZIP.LAYOUT": "MISMATCH"
+        }
+      },
+      "agreement": true,
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.LAYOUT": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      },
+      "port": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.LAYOUT": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      },
+      "note": "The other family the sweep behind the fuzzer decision found, and the first case in this corpus where the reference had the better answer and the port refused too early. The reference walked all three records and reported `L0.ZIP.LAYOUT`=MISMATCH, because the size the directory declares for itself is what its records' extents have to add up to; the port refused at the gate with `L0.ZIP.READABLE`=MALFORMED for the record's declared extent, which is a complaint section 3.1 does not give the gate — the gate reads names, and the name here is exactly where the file says it is. Section 3.4 now says what \"the size its records use\" is (the fixed part, the name, and the extra field and the comment each record declares) and that a record whose extent reaches past the file is this check's number rather than the gate's, and the port's `walk` checks the name's end and no more. The port's answer also cost a verdict shape rather than only a word: MALFORMED with 29 checks never run against MISMATCH with none, which is the difference between an archive nobody read and one that was read and does not add up. The comment-length variant, and the same mutation on the middle record — where both implementations refuse with MALFORMED, because the next record is not where the file says it is — were built by hand as well."
+    },
+    {
+      "name": "unsupported-method-beside-a-wrong-size",
+      "file": "out/unsupported-method-beside-a-wrong-size.charter",
+      "bytes": 1884,
+      "sha256": "e2eca9789543cbecf4196eed603182fa253ba4fa9c0ccb6208861a53c7d6f931",
+      "mutation": "Two entries are changed, and the case needs both: `content.md` declares 100 uncompressed bytes in both copies of its header where the entry holds 158, and `provenance.jsonl` declares compression method 12 in both copies, which charter/0.1 does not implement. One entry cannot be measured at all, and the other is measurable and wrong.",
+      "question": "The file is wrong in two places that the same two checks would have to report. Does a check whose requirement is about every entry report the defect it measured, or does the unmeasurable entry leave it with no answer — and which of those is an absence of evidence?",
+      "spec": null,
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.ZIP.SIZES": "MISMATCH"
+        }
+      },
+      "agreement": true,
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.SIZES": "MISMATCH"
+        },
+        "unsupported": {
+          "L0.ZIP.ENTRY_DATA": "UNSUPPORTED_FEATURE"
+        },
+        "skips": 13
+      },
+      "port": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.SIZES": "MISMATCH"
+        },
+        "unsupported": {
+          "L0.ZIP.ENTRY_DATA": "UNSUPPORTED_FEATURE"
+        },
+        "skips": 13
+      },
+      "note": "The only case in this corpus whose answer is not section 3's, which is why its `spec` is null rather than a container section, and the third family the sweep behind the fuzzer decision found. Its question is about check statuses and section 10.1 answers it. The reference measured the entry it could read, found its declared size wrong, and reported `L0.ZIP.SIZES`=MISMATCH with 13 checks never reached; the port saw that one entry's bytes could not be read, gave up on the check, and reported `SKIP` — 14 skips against the reference's 13, and no word about the size that was wrong. That is not an absence of evidence, it is a *refusal* to report evidence the port had: the check ran, and it measured the entry that could be measured. Section 10.1 now says the rule one entry down from its own \"the gate is the fact, not the status\" — a fact that names one entry gates that entry and not the check that reads it, so SKIP means every answer was \"not measurable\" — and the port's `check_sizes` and `check_crc32` remember the first unreadable entry, keep measuring, report a defect they find, and re-raise the block only when they found none. The two-copy lie in this artifact is deliberate: both copies of both changed fields say the same thing, so `L0.ZIP.METADATA` passes and the case isolates the status question. Neither change alone disagrees between the implementations — the kit's `unsupported-method` is the one half and `wrong-declared-size` the other — which is what made the case unreachable by hand until the sweep."
+    },
+    {
+      "name": "local-extra-field-unread",
+      "file": "out/local-extra-field-unread.charter",
+      "bytes": 1888,
+      "sha256": "7df725c889488fe694045f6bfe04e32a6de4a90b66ce61e764d03ff61ac959e2",
+      "mutation": "`provenance.jsonl`'s local header carries a four-byte extra field between its name and its data and declares `extra_len` 4, which is the truth: the field is well formed, and every offset the insertion moved — the directory's own, in the end record — is moved with it.",
+      "question": "A charter may carry an extra field, and no check reads what is in it: §3.4 puts an extra field in the list of things every byte of the file is accounted for by, and §3.6's rule says a byte the reader never looks at is a byte a forged file can change for free. Is this file a charter, and which of those two sentences does the artifact answer?",
+      "spec": "3.4",
+      "asked": {
+        "verdict": "VERIFIED"
+      },
+      "agreement": true,
+      "expected": {
+        "verdict": "VERIFIED",
+        "exit_code": 0,
+        "fail": {},
+        "unsupported": {},
+        "skips": 0
+      },
+      "port": {
+        "verdict": "VERIFIED",
+        "exit_code": 0,
+        "fail": {},
+        "unsupported": {},
+        "skips": 0
+      },
+      "note": "Both implementations agree, and the agreement is a finding this corpus did not have before: the file verifies. An extra field is in section 3.4's list of the things every byte of the file is accounted for by, nothing reads what is inside it, and both readers accept it — so a four-byte field a writer can fill with anything is a region of a charter/0.1 artifact whose bytes can be rewritten without a single thing the verdict reports changing. Section 3.6's last paragraph is the sentence that argues with that rule, and the case is recorded rather than settled because settling it changes the set of files that verify, which section 14's list makes a decision about the format rather than a patch: either an extra field is bytes the layout accounts for and nothing compares (what this artifact says), or a charter may not carry one and this case's answer becomes a defect. The case is here so that the day the format decides, the decision has an artifact to move, and its expected answer is the one the two implementations give today."
+    }
+  ]
+}

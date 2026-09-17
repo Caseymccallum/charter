@@ -112,3 +112,67 @@ test('section 10 names every check id in the registry, and invents none', () => 
     assert.equal(IDS_NAMED.includes(id), true, `${id} is in the registry and section 10 never names it`);
   }
 });
+
+/**
+ * The `settled by` column of section 10.2, row by row.
+ *
+ * @returns {{ id: string, settled: string }[]}
+ */
+function ownerRows() {
+  const start = VERDICTS.indexOf('### 10.2 One requirement, one owner');
+  const end = VERDICTS.indexOf('### 10.3');
+  assert.notEqual(start, -1, 'SPEC.md section 10.2 is the table this test reads');
+  assert.notEqual(end, -1, 'SPEC.md section 10.3 is where the column is explained');
+  return VERDICTS.slice(start, end)
+    .split('\n')
+    .filter((line) => /^\|\s*`L[0-2]\./.test(line))
+    .map((line) => {
+      const cells = line.split('|').map((cell) => cell.trim());
+      return { id: cells[1].replaceAll('`', ''), settled: cells[4] };
+    });
+}
+
+/**
+ * The cases one cell of the column names, with the kind of case each is.
+ *
+ * @param {string} settled
+ * @returns {{ kind: string, name: string }[]}
+ */
+function settledBy(settled) {
+  return settled.split(';').flatMap((group) => {
+    const named = [...group.matchAll(/`([^`]+)`/g)].map((match) => match[1]);
+    const [kind, ...cases] = named;
+    return cases.map((name) => ({ kind, name }));
+  });
+}
+
+test('every row of section 10.2 names the cases that check it', () => {
+  const records = {
+    fixture: new Set(JSON.parse(readFileSync(join(ROOT, 'vectors', 'expected.json'), 'utf8')).cases.map((entry) => entry.name)),
+    probe: new Set(JSON.parse(readFileSync(join(ROOT, 'vectors', 'probe', 'expected.json'), 'utf8')).cases.map((entry) => entry.name)),
+    corpus: new Set(JSON.parse(readFileSync(join(ROOT, 'vectors', 'container', 'expected.json'), 'utf8')).cases.map((entry) => entry.name)),
+  };
+  const rows = ownerRows();
+  assert.deepEqual(rows.map((row) => row.id), [...CHECK_IDS], 'the table is the registry, in the registry’s order');
+  /** @type {Record<string, number>} */
+  const totals = { fixture: 0, probe: 0, corpus: 0 };
+  for (const row of rows) {
+    assert.ok(row.settled.startsWith('`'), `${row.id}: every row names where it is settled`);
+    const cases = settledBy(row.settled);
+    assert.ok(cases.length > 0, `${row.id}: the column names at least one case`);
+    for (const { kind, name } of cases) {
+      assert.ok(Object.keys(records).includes(kind), `${row.id}: ${kind} is not one of the three kinds of case`);
+      assert.ok(
+        records[kind].has(name),
+        `${row.id}: ${kind} has no case named ${name}, so the column would be claiming a case that does not exist`,
+      );
+    }
+    for (const kind of new Set(cases.map((entry) => entry.kind))) totals[kind] += 1;
+    assert.equal(row.settled.includes('prose'), false, `${row.id}: no row is prose alone`);
+  }
+  const stated = VERDICTS.match(/\*\*(\d+) rows settled by a kit fixture, (\d+) by a probe case, (\d+) by a\ncorpus case, and none by prose alone\*\*/);
+  assert.notEqual(stated, null, 'section 10.3 states the column’s totals, and this test reads that sentence');
+  assert.equal(Number(stated[1]), totals.fixture, 'the stated fixture total is the column’s fixture total');
+  assert.equal(Number(stated[2]), totals.probe, 'the stated probe total is the column’s probe total');
+  assert.equal(Number(stated[3]), totals.corpus, 'the stated corpus total is the column’s corpus total');
+});

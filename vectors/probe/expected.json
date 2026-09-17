@@ -2,7 +2,7 @@
   "probe": "charter differential probes",
   "format": "charter/0.1",
   "built_by": "implementations/python/tools/probe.py --build",
-  "note": "The answers in this file are the reference command line's, recorded as a black box by implementations/python/tools/probe.py --build. Each case carries the question it asks (`asked`) and the answer the reference gave (`expected`); vectors/probe/run.js replays both against the reference and, when a Python interpreter is installed, against implementations/python.",
+  "note": "The answers in this file are the reference command line's, recorded as a black box by implementations/python/tools/probe.py --build, which refuses to write a record when the reference and the port disagree about a case. Each case carries the question it asks (`asked`) and the answer the reference gave (`expected`); vectors/probe/run.js replays both against the reference and, when a Python interpreter is installed, against implementations/python.",
   "cases": [
     {
       "name": "zero-lead",
@@ -459,6 +459,148 @@
           "L0.PROVENANCE.EXTRA_FIELDS": "UNKNOWN_FIELD",
           "L1.PROVENANCE.SIGNATURES": "MISMATCH",
           "L2.CHAIN.HEAD_MATCHES_CONTENT": "MISMATCH"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "log-line-empty-content-hash",
+      "file": "out/log-line-empty-content-hash.charter",
+      "bytes": 1820,
+      "sha256": "6075cffdde8502a70ba0228226e71426b84527927920502a333cc181349ebfe2",
+      "probe": "An entry whose `content_sha256` is the empty string. It is a string, so the seven fields are present and correctly typed and `L0.PROVENANCE.FIELDS` has nothing to say; what is wrong is that `\"\"` is not 64 lowercase hex characters, which is the sentence of the check that reads the digest. The reference used to report it as a malformed *field* and skip the seven checks that had an answer, which is the same finding as `log-line-not-canonical` in a different field.",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.PROVENANCE.CONTENT_HASH_FORMAT": "NON_CANONICAL_ENCODING",
+          "L1.PROVENANCE.SIGNATURES": "MISMATCH",
+          "L2.CHAIN.HEAD_MATCHES_CONTENT": "NON_CANONICAL_ENCODING"
+        }
+      },
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.PROVENANCE.CONTENT_HASH_FORMAT": "NON_CANONICAL_ENCODING",
+          "L1.PROVENANCE.SIGNATURES": "MISMATCH",
+          "L2.CHAIN.HEAD_MATCHES_CONTENT": "NON_CANONICAL_ENCODING"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "log-line-empty-signature",
+      "file": "out/log-line-empty-signature.charter",
+      "bytes": 1798,
+      "sha256": "4f0e6c4f1a9c5b94ffaec39111a6b2828592fb620fd58c768dc71b94b3ca9037",
+      "probe": "An entry whose signature is the empty string. `\"\"` is the one spelling of the empty byte string, so this is not a spelling problem at all: the signature decodes to 0 bytes where Ed25519 uses 64, which is MALFORMED, and `L1.PROVENANCE.SIGNATURES` is the check that says so. The reference used to report it as a malformed *field* instead.",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L1.PROVENANCE.SIGNATURES": "MALFORMED"
+        }
+      },
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L1.PROVENANCE.SIGNATURES": "MALFORMED"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "log-line-bad-parent",
+      "file": "out/log-line-bad-parent.charter",
+      "bytes": 1884,
+      "sha256": "1fabf3b41d140a72884bfafb235df138e4ad1da57ba6c8357839452248779c76",
+      "probe": "An entry whose `parent` is the digest of the line before it written in uppercase: the same 64 hex characters, in the one other spelling of them. `parent` is a string or null as far as the fields are concerned, and the value is a digest to `L2.CHAIN.LINKS`, so this is NON_CANONICAL_ENCODING rather than a link that does not match — and rather than a malformed field, which is what the reference reported before section 10 said which check owns a parent.",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L2.CHAIN.LINKS": "NON_CANONICAL_ENCODING",
+          "L1.PROVENANCE.SIGNATURES": "MISMATCH"
+        }
+      },
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L1.PROVENANCE.SIGNATURES": "MISMATCH",
+          "L2.CHAIN.LINKS": "NON_CANONICAL_ENCODING"
+        },
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "manifest-empty-format",
+      "file": "out/manifest-empty-format.charter",
+      "bytes": 1873,
+      "sha256": "00c0e34710c9b16e949abd5e7dccfef826651dfbd706ab50f6e53cd31c3722aa",
+      "probe": "`format` is the empty string. It is not an absence: the key is there, so MISSING is not the word for it. It is not a malformation either: `\"\"` is a string, so MALFORMED is not the word for it. It is a present string that names no version this format implements, and section 5's three cases are absent, not a string, and a value this verifier does not implement — the empty string is the third, so the version gate owns it and the verdict is INCOMPLETE rather than BROKEN. The checks that depend on a manifest value are SKIP behind the gate, which is §10.1 and not a second failure.",
+      "asked": {
+        "verdict": "INCOMPLETE",
+        "unsupported": {
+          "L0.FORMAT.IDENTIFIER": "UNSUPPORTED_VERSION"
+        }
+      },
+      "expected": {
+        "verdict": "INCOMPLETE",
+        "exit_code": 1,
+        "fail": {},
+        "unsupported": {
+          "L0.FORMAT.IDENTIFIER": "UNSUPPORTED_VERSION"
+        },
+        "skips": 19
+      }
+    },
+    {
+      "name": "manifest-empty-key-id",
+      "file": "out/manifest-empty-key-id.charter",
+      "bytes": 1812,
+      "sha256": "e162e0b72618fd90922144c2e61f1dddcb0170559cd65f1a5860e27949168767",
+      "probe": "`author.key_id` is the empty string. Section 5's table asks for a non-empty string, and this is empty, so `L0.MANIFEST.FIELDS` reports MALFORMED — and it is FIELDS that reports it because no other check reads a key id: `L1.MANIFEST.KEY_ID` derives the id from the public key and compares the two, and it cannot run until the fields are readable. The checks that need a manifest value are SKIP, exactly as they are for any other thing FIELDS refuses.",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L0.MANIFEST.FIELDS": "MALFORMED"
+        }
+      },
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.MANIFEST.FIELDS": "MALFORMED"
+        },
+        "unsupported": {},
+        "skips": 7
+      }
+    },
+    {
+      "name": "log-first-parent-nonnull",
+      "file": "out/log-first-parent-nonnull.charter",
+      "bytes": 1946,
+      "sha256": "9692817268c4675056f7a869334e46c4afd6162dfc2310e8fe9b757350748989",
+      "probe": "The first entry's `parent` is a well-formed digest — 64 lowercase hex characters — of a line that is not in this log, and the second entry's parent is recomputed over the first line as it now stands, so the link between them is exactly what section 9 asks for and `L2.CHAIN.LINKS` passes. The question is which check answers for the first entry's parent. It is not a spelling problem: the value is a digest, so nothing here is NON_CANONICAL_ENCODING. It is not LINKS' value either: section 9's LINKS reads every *later* entry's parent, and the first entry's is the one value `L2.CHAIN.FIRST_PARENT_NULL` owns, whatever it holds. The requirement there is that the chain starts from nothing, so a digest where `null` is required is MISMATCH and nothing else. Compare `log-line-bad-parent` in this probe, where the same field holds a non-digest string on an entry LINKS does read: that is a spelling failure and LINKS owns it. The kit's `log-reordered` shows the same field failing, but it moves both entries, so LINKS fails there too and the two owners are not separated.",
+      "asked": {
+        "verdict": "BROKEN",
+        "fail": {
+          "L2.CHAIN.FIRST_PARENT_NULL": "MISMATCH"
+        },
+        "pass": [
+          "L2.CHAIN.LINKS"
+        ]
+      },
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L1.PROVENANCE.SIGNATURES": "MISMATCH",
+          "L2.CHAIN.FIRST_PARENT_NULL": "MISMATCH"
         },
         "unsupported": {},
         "skips": 0

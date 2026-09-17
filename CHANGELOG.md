@@ -4,18 +4,432 @@ Recorded because they are decisions about published behaviour, not internal
 tidying. The format identifier in `manifest.format` changes when section 14 of
 [SPEC.md](SPEC.md) changes; this file records what changed, when, and why.
 
+## Unreleased — three cases by hand, and the sweep that decided against a fuzzer
+
+The previous pass ended with a recommendation: three byte-arithmetic mutations no
+field-level case can state, then a decision about a differential container fuzzer,
+and then the first user. This pass did the first, measured its way to an answer for
+the second, and left the third where it is.
+
+Eight cases were added to the container corpus — the three the recommendation
+named, a fourth they led to, and four the measurement produced — and they found six
+differences: five the port's, and one where both implementations had answered the
+same wrong thing. Two more cases moved nobody: one enforces a rule §3.1 already
+stated, and one records a *hole* rather than a difference. §3.1, §3.2, §3.4 and
+§10.1 changed, all 34 cases agree, and `manifest.format` is still `charter/0.1`.
+
+### The three cases, and the fourth they found
+
+Each of the three is one mutation of `vectors/out/valid.charter`, and each has an
+answer in the record:
+
+- **`entry-extra-len-off-by-one`** — `provenance.jsonl`'s local header carries four
+  bytes of extra field and declares five, so the entry's declared data starts one
+  byte late and its declared end lands one byte inside the central directory.
+  **Both implementations were wrong the same way**: each reported
+  `L0.ZIP.LAYOUT`=EXTRA, which §3.4 gives a *gap*, and this is not a gap — the last
+  entry's data and the directory were two claims about one byte, which is §3.4's
+  overlap and MISMATCH. §3.4 stated the comparison in one sentence with one code and
+  no direction, and `verifier/zip.js` measured the difference with `Math.abs`, which
+  is how a reader can tell the author knew it could be negative. §3.4 now states both
+  directions, and both implementations report the one they are in. This is the first
+  case in the corpus's history where the two implementations agreed and were both
+  wrong, and the finding is the *silence* that let them.
+- **`entry-name-length-copies-differ`** — `content.md`'s local header declares
+  `name_len` 11 where the name is ten bytes and the directory says ten. **Nobody
+  moved**: both refuse at the gate with `MISMATCH` and 29 checks never run. The case
+  is the answer to its own second half — the data offset the declared length moves is
+  never reached, because a reader that has not agreed with itself about the name does
+  not know which bytes are the sizes — and that order is the one §3.1 now states for
+  the directory as a whole.
+- **`entry-byte-deleted-mid-directory`** — one byte removed from the middle of the
+  directory, so every later record is one byte early while the count, every offset
+  and the declared directory size are exactly what they were. **The port moved.** The
+  reference reads every record before it compares any record's name with the local
+  header that record points at, so it found the third record missing and reported
+  MALFORMED; the port compared each name as it walked, so it reported MISMATCH about
+  a name at an offset its own walk had already broken, and never said the plainer
+  thing. §3.1 now fixes the order — the shape of the directory is established before
+  its records' claims are compared — and `walk` reads the whole directory in one pass
+  and resolves local headers in a second.
+- **`entry-name-not-utf8`** — the fourth case, found by hand while building the
+  three: one byte of `content.md`'s name, in both copies, set to a byte that cannot
+  stand alone in UTF-8. **The port moved**, and not by a word: the reference refused
+  at the gate with DECODE_ERROR and 29 checks never run, and the port decoded the name
+  with replacement characters, carried on, and reported `L0.ZIP.ENTRY_SET`=MISSING
+  with 2 checks never run. No case in the kit or the probe asked this and §3.1 said
+  nothing about whether a name has to be a string; it does now, and the port decodes
+  each record's name as it walks.
+
+**Did any of them reach behaviour neither implementation was written for?** Two of
+them, and they are the two the recommendation predicted.
+`entry-byte-deleted-mid-directory` is the one: neither reader was written *against*
+§3.1, because §3.1 did not say in which order the directory's shape and its records'
+claims are settled — the reference happens to settle them one way and the port the
+other, and only a misaligned directory can tell. `entry-extra-len-off-by-one` is the
+other: neither reader was written for a range that ends past the directory's own
+offset, so both took the branch their code had and gave the code they had for it. The
+corpus is what turned both into sentences in the spec.
+
+
+### What the measurement found, and what it settled
+
+The recommendation asked whether to build a differential container fuzzer, and said
+to build it only if the hand cases suggested more of the same were out there. Rather
+than answer that from the three cases alone, the question was measured: a throwaway
+differential sweep moved every field of every record through seven values, moved the
+two copies of each repeated claim together, and (separately) wrote random bytes into
+two to four positions of the record regions. Before this pass's fixes it found 20
+disagreements in 1301 structured mutations and 17 in a 400-mutation random run.
+
+Three families, all now cases:
+
+- **Which copy of a repeated claim a check reads.** A feature level above 2.0 in the
+  *local* copy only: the reference reported `L0.ZIP.METADATA`=MISMATCH and left
+  `L0.ZIP.VERSION` passing (it reads the directory's copy); the port read
+  `max(central, local)` and reported `UNSUPPORTED_VERSION` as well. **The port
+  moved.** §3.2 now names the copy, which is §3.5's rule for every claim the file
+  states twice, and the case is `entry-version-needed-local-only`. The direction is
+  the point: the two copies are one claim written twice, not two opinions, and a
+  reader that takes the larger of them has invented a requirement.
+- **A record whose declared extent reaches past the file.** The reference walked all
+  three records and reported `L0.ZIP.LAYOUT`=MISMATCH; the port refused at the gate
+  with `MALFORMED`. **The port moved.** §3.4 now says what "the size its records use"
+  is and that the gate reads *names*; the case is `central-extra-len-past-eof`, and
+  it is the first case where the reference had the better answer and the port refused
+  too early.
+- **A defect a check measured and did not report.** One entry's method is one this
+  verifier does not implement and another entry's declared size is wrong: the
+  reference measured the entry it could read and reported `L0.ZIP.SIZES`=MISMATCH,
+  and the port gave up on the check and reported `SKIP`. **The port moved**, and this
+  is the pass's worst finding, because the port was not wrong, it was *silent* about
+  evidence it had. §10.1 gains the rule one entry down from its own "the gate is the
+  fact, not the status": a fact that names one entry gates that entry and not the
+  check that reads it, so a check whose requirement is about every entry is SKIP only
+  when every answer it gave was "not measurable". The case is
+  `unsupported-method-beside-a-wrong-size`, and it is the only case in the corpus
+  whose `spec` is null — its answer lives in §10.1, and the column says where an
+  answer lives.
+
+And one case moved nobody, because no implementation can be wrong about it:
+**`local-extra-field-unread`** is a charter whose local header carries a four-byte
+extra field, declared honestly, and it comes back VERIFIED from both. §3.4 puts an
+extra field in the list of things every byte of the file is accounted for by,
+nothing reads what is inside it, and §3.6's own rule — *a byte the reader never looks
+at is a byte a forged file can change for free* — is the sentence that argues with
+that. This is the corpus's first recorded hole rather than a difference. It is
+recorded rather than settled because settling it changes the set of files that
+verify, which §14 makes a decision about the format rather than a patch; the case is
+in the corpus so that the decision has an artifact to move.
+
+
+This pass asks one question of the repository rather than of the format: **which
+of the rules stated here can a stranger check?** A rule held by this project's
+own tests is a rule two copies of one author's reading agree about. Three of them
+had no case at all — only a sentence in SPEC.md and the tests here — and §10.2,
+the table of one requirement and one owner per row, carried no column saying
+where a row's answer could be checked: a row backed by a committed artifact and a
+row backed by prose looked the same. All three are cases now, every row of §10.2
+### The fuzzer: not built
+
+The decision is **no**, and it rests on the measurement rather than on taste. After
+the three families above were settled, the same sweep finds nothing: 0 disagreements
+in the 1301 structured mutations, and 0 in each of two runs of 600 random multi-byte
+mutations over the same records. That is not an accident of the sample: the class the
+recommendation named — *a two-byte change that preserves self-consistency* — is the
+class where the two implementations already agree, and that was measured before
+anything was built. Four such mutations were built by hand and all four agreed: a
+name length moved into the extra length so the data offset is unchanged, a byte moved
+from one entry's data into the next entry's, a bit set in both flag words, and an
+extra field carried with its declaration honest. What the sweep did find, it found in
+the first thousand mutations and in one shape per family, and every one of those is
+now an artifact with a recorded answer — which is the thing the corpus is for and the
+thing a fuzzer cannot produce. A generator whose queue is empty is a tool a reader
+has to trust without evidence.
+
+One disagreement the sweep found is named and not settled, and it is not in the
+container at all: replace the first byte of `created_at`'s value in `manifest.json`
+with a newline and the bytes `2026-01-01T00:00:00Z` stand where a value belongs. The
+reference reports `L0.MANIFEST.PARSE`=NON_INTEGER_NUMBER ("2026-01-01 is not a
+canonical integer") and the port reports MALFORMED ("an object holds '-' where ','
+or '}' was due"). §4.1 reports `01` as NON_INTEGER_NUMBER and says nothing about
+which characters a malformed number runs to, so this is a silence in §4.1 rather than
+a container question, and its case belongs in the differential probe — whose builder
+refuses to record a case the two disagree about, which is why there is no probe case
+yet. It is recorded here, with the recipe, because half-settling a canonical-JSON
+question at the end of a container pass is how a spec acquires a rule nobody meant.
+
+### The first user
+
+Part three of the brief was the one that does not happen in this file. The editor is
+ready to be handed over (`npm run editor`), the one sentence it needs is written
+down, and the session itself needs a person who is not a developer, has one document
+they need a stranger to be able to check, and has no interest in reading a spec. No
+such session has been run for this pass, and none is recorded as if it had been: the
+protocol, the three things to watch for, and the one question to ask are in
+[`docs/first-user.md`](docs/first-user.md), which is where the verbatim record goes
+the moment the session happens. The rule the brief sets out is kept: nothing about
+the editor was changed to make the session easier.
+
+### What did not move
+
+- **No kit artifact, and no recorded kit answer.** `vectors/out/` and
+  `vectors/expected.json` are byte-for-byte what they were, and the 54 verdicts are
+  the ones they were. The probe's 26 cases and answers are untouched as well.
+- **No format identifier.** `manifest.format` is still `charter/0.1`. The sections
+  this pass touched are §3, §10.1, §10.2 and §10.3, and §14 is not among them.
+- **No new reason code, and no new check.** Both readers were fixed to the codes the
+  vocabulary already carried, and the two implementation changes that are not
+  one-line are in the port: `walk` reads the directory in two passes, and
+  `check_sizes` and `check_crc32` keep measuring the entries they can read.
+- **The corpus grew and changed no earlier answer.** All 26 of the first pass's cases
+  still carry the same two answers, `agreement: true`, and the invariant both
+  `test/corpus.test.js` and `tests/test_corpus.py` assert — zero recorded
+  disagreements — holds over all 34.
+
+## Unreleased — the corpus, and the three readings that were only prose
+
+This pass asks one question of the repository rather than of the format: **which
+of the rules stated here can a stranger check?** A rule held by this project's
+own tests is a rule two copies of one author's reading agree about. Three of them
+had no case at all — only a sentence in SPEC.md and the tests here — and §10.2,
+the table of one requirement and one owner per row, carried no column saying
+where a row's answer could be checked: a row backed by a committed artifact and a
+row backed by prose looked the same. All three are cases now, every row of §10.2
+names the cases that settle it, and the third thing in this pass went one level
+below every case the repository had: the container's bytes.
+
+### Three readings that only prose held, and are fixtures now
+
+§5 and §7 settled three questions that the kit does not ask, and until this pass
+the only thing that decided them was the sentence in the document plus the tests
+here. Each is now an artifact with both implementations' answers recorded:
+
+- **`manifest-empty-format`** — `format` is `""`. §5's third case: a string that
+  is not `charter/0.1` is a version this verifier does not implement, so
+  `L0.FORMAT.IDENTIFIER` reports `UNSUPPORTED_VERSION` and the verdict is
+  `INCOMPLETE`. Not `MALFORMED`, and not a `FIELDS` complaint: the value is a
+  string, and what is wrong with it is that nobody implemented it.
+- **`manifest-empty-key-id`** — `author.key_id` is `""`. `L0.MANIFEST.FIELDS`
+  reports `MALFORMED`, because this is the one field in the manifest whose
+  requirement no other check can carry — nothing else reads a key id — which is
+  the clause §10.2's two `FIELDS` rows exist to make visible.
+- **`log-first-parent-nonnull`** — the first entry's `parent` is a valid digest
+  where the format requires `null`. `L2.CHAIN.FIRST_PARENT_NULL` reports
+  `MISMATCH`. It is not `L2.CHAIN.LINKS`' value, and the case says so in the
+  record rather than assuming it: the chain in this fixture was rebuilt so that
+  `LINKS` *passes* and only the first-parent rule fails. A fixture where both
+  fail would have settled nothing.
+
+Both implementations answered all three the way §5 and §7 say on the first run,
+which is the whole result: **no implementation moved for this pass.** What moved
+is what a stranger can now check. `node vectors/probe/run.js` asks the three, and
+`test/probe.test.js` asserts each of them by name — including that the third one
+leaves `L2.CHAIN.LINKS` alone.
+
+### The column that says what settles each row
+
+§10.2 is 30 rows: what each check requires, and the value it owns. It had no
+column saying where the row's answer can be *checked*, and a reader had no way to
+tell a row backed by a committed artifact from a row backed by a sentence. It has
+one now — `| Settled by |` — and every value in it is a case that exists:
+
+| Kind | Where | Rows |
+| --- | --- | --- |
+| `fixture` | `vectors/out/`, replayed by `vectors/run.js` | 25 |
+| `probe` | `vectors/probe/`, replayed by `vectors/probe/run.js` | 16 |
+| `corpus` | `vectors/container/`, replayed by `vectors/container/run.js` | 6 |
+| prose | — | 0 |
+
+The numbers are larger than 30 because rows have faces rather than answers:
+`L0.ZIP.READABLE` has a file that is not a container at all and a file that is
+one disk of a set, and each face names a case. §10.3 states the totals and the
+rule behind them; `test/spec.test.js` holds the column to the records it names,
+in both directions — a case named in the table that is not in the record it
+names fails, and so does a row that names nothing. It was proven by changing a
+tally and watching it fail, then reverting.
+
+One rule in this document still cannot be a row, and it is worth saying why. *A
+requirement has exactly one owner* is the head of §10, and it is a property of
+the table rather than a requirement about a file: no single input demonstrates
+it. Its observable form is the cases the two `FIELDS` rows cite — a verdict in
+which FIELDS fails and every check that would read the value is SKIP — and those
+are cases like any other.
+
+### The container corpus: eleven disagreements on its first run
+
+Every artifact in the kit and in the probe is a JSON *document* inside a
+container, and every check they exercise reads a field. Neither can reach the
+container's byte arithmetic, because "this entry's declared compressed size is
+one byte more than the bytes that follow it" is not a field — it is an offset.
+`vectors/container/` is 26 hand-written mutations of `vectors/out/valid.charter`,
+one change each, with both implementations' answers recorded:
+`python tools/corpus.py --build` writes them, `--check` rebuilds every artifact in
+memory and refuses one that is not the file its mutation makes, and
+`node vectors/container/run.js` asks both implementations.
+
+**Eleven of the 26 disagreed on the first run**, and this port was the
+implementation at fault in ten of them. The list, case by case, is in
+[`vectors/container/README.md`](vectors/container/README.md) and in
+`implementations/python/README.md`; the shape of it is:
+
+- **The two flag words were never compared.** A file with `0x0002` set in one
+  header and not the other came back `VERIFIED` from the port. A reader that
+  cannot agree with itself about flags cannot decode anything, so §3.3 makes this
+  a refusal at `L0.ZIP.READABLE` with reason `MISMATCH`, and that is what both
+  implementations report now.
+- **`MALFORMED` where the file makes two claims about one fact, and `EXTRA` where
+  two ranges claim the same bytes.** Two records naming one local header is two
+  claims about the same bytes, and the port called it `MALFORMED` in one case and
+  `EXTRA` in another. §3.1 now draws the first line — bytes that are not the shape
+  the format requires, versus two well-formed claims where one is false — and
+  §3.4 the second: a gap between ranges is bytes nothing accounts for (`EXTRA`),
+  and an overlap is two claims about the same bytes (`MISMATCH`). §3.4 had defined
+  only `EXTRA`, and the port reported it for both.
+- **Three numbers the format fixes that the port read and never compared** — the
+  directory's declared size (a byte a forged file could change for free), and the
+  end record's ZIP64 markers and disk count, which the port turned into a failure
+  where §3.2 makes them an archive this reader will not interpret. Those two
+  verdicts are `INCOMPLETE` with `UNSUPPORTED_VERSION` and `UNSUPPORTED_FEATURE`,
+  never `BROKEN`.
+- **One reason code for a feature level above 2.0** — `UNSUPPORTED_FEATURE` where
+  §3.2's voice is `UNSUPPORTED_VERSION`, the same code a ZIP64 end record
+  carries. The same edit removed the port's reading of a bare `0xFFFFFFFF` size
+  field as ZIP64; that is a ceiling, which is §3.7's to report.
+- **The local copy of a size and a CRC-32, measured in the checks that own the
+  value.** §3.5: `L0.ZIP.SIZES` and `L0.ZIP.CRC32` read the central directory's
+  copy, and the local copy is `L0.ZIP.METADATA`'s to compare. One edited header
+  was being reported twice, and the second report was not the size check's to make:
+  §10.2 gives each value one owner, and what a reader gets from a second one is a
+  defect that looks like two.
+
+**The reference was wrong once**, and it is the one to read twice:
+`entry-central-order-swapped` writes the directory's records in a different order
+than the body — which is what a writer that sorts its records by name produces,
+and is not a defect. The reference's layout walk took the directory's order for
+the file's and read the first record's offset as a gap: `BROKEN` where the port
+said `VERIFIED`. §3.4 now says the layout rule is a property of the byte ranges
+and that the ranges are walked in file order, which is what `verifier/zip.js`
+does.
+
+Every one of the eleven was settled the same way — read the ZIP specification,
+read §3, amend §3 where it was silent **and then** fix whichever implementation
+was wrong — so §3.1 through §3.5 and §3.7 changed, `verifier/zip.js` and
+`charter_verify/{container,checks}.py` changed, and all 26 agree now.
+`tests/test_corpus.py` and `test/corpus.test.js` hold that as an invariant: the
+number of cases with `agreement: false` is asserted to be zero, so a corpus that
+has grown a new divergence fails the suite rather than quietly becoming a record
+of one. The replay itself fails only when an implementation has *moved* — a case
+that still reads two ways is reported as a finding, with both answers side by
+side, which is the shape the next disagreement will arrive in.
+
+### What did not move
+
+- **No kit artifact was rebuilt.** `vectors/out/` and `vectors/expected.json` are
+  byte-for-byte what they were, and the 54 recorded verdicts are the ones they
+  were.
+- **No format identifier moved.** `manifest.format` is still `charter/0.1`, and
+  the sections this pass touched are §3, §10.2 and §10.3. §14 — what changes a
+  version — is not among them, and `git diff -U0 -- SPEC.md` stops before it.
+- **The probe's record gained three cases and changed none.** Nothing recorded
+  before this pass has a different answer, so no earlier finding was re-settled
+  by re-recording one, and the probe's build-time refusal (added in the pass
+  below) still holds: the builder writes nothing when the two implementations
+  disagree about a case.
+- **Silence was not mistaken for agreement.** The corpus is a finding tool rather
+  than a kit on purpose: its record is evidence, and its failures are about
+  movement. Every case that agreed on the first run says so in its own `note` —
+  including the ones where the agreement *is* the finding, like
+  `entry-order-reordered`, which settled that the format fixes the order of the
+  kinds of thing rather than the order of the entries.
+
 ## Unreleased — the spec, before anyone else reads it
 
 Ten findings from the two passes before this one are settled in
 [SPEC.md](SPEC.md), and exactly one of them changed a reason code. The version
 string is still `charter/0.1`, no artifact in `vectors/` is a different file than
 it was, the 54 recorded verdicts are the ones they were, and both implementations
-still replay 54 of 54 and 20 of 20. What changed is what the document says about
-the ten places a third implementer would otherwise have had to guess, and that is
-the point of doing it now: a third implementation written against an ambiguous
-rule freezes the ambiguity.
+still replay 54 of 54 — and every case in the probe, which this section grew from
+20 to 23 and the pass above carried on to 26. What changed is what the document
+says about the ten places a third implementer would otherwise have had to guess,
+and that is the point of doing it now: a third implementation written against an
+ambiguous rule freezes the ambiguity.
 
-### The reason code an absent field carries
+### The last of the residuals: a field that measures a string nobody has read
+
+Three times now the same shape has appeared, and this pass is where it stopped
+being a coincidence. A reader — `L0.MANIFEST.FIELDS`, `L0.PROVENANCE.FIELDS` —
+measured a string that the check *reading* the value owns: an uppercase digest
+under FIELDS, then an absent `content_sha256` reported as a second spelling, and
+now three more. The first two were found by hand. The third family was found by
+asking systematically — every field of both documents, rewritten eleven ways each,
+with both implementations asked about all 212 of them — which turned up 40
+disagreements in eight families, a great many for two programs that had already
+replayed 54 fixtures and the 20 probes that existed then without a difference.
+
+Three families were the *reference*:
+
+- an empty `content_sha256`, an empty signature and an empty public key are
+  strings, so FIELDS has nothing to say about them — 5 of the 212 cases. The
+  reference measured emptiness in the field specs (`non_empty`) and reported
+  `MALFORMED` from FIELDS, which took the complaint away from the check that reads
+  the value and skipped the seven checks that had an answer;
+- a `parent` that is not 64 lowercase hex characters was measured where it is
+  *declared* (a `hex_or_null` field spec) instead of where it is *read* — 8 cases,
+  because a parent can be short, empty, uppercase, padded or a character outside
+  the alphabet, and the first entry's parent is a different check's. A parent in
+  uppercase was a malformed field rather than a second spelling of a digest, and
+  §5 names that case in so many words;
+- `format` holding `""` was `MALFORMED` — 1 case, where §5's own three cases make
+  it the third: `""` is a string, and a string that is not `"charter/0.1"` is a
+  version this verifier does not implement.
+
+Four families were this port's, which is the other half of what a differential
+harness is for:
+
+- `base64url.decode` answered `MALFORMED` for a character outside the alphabet and
+  for a length no byte string is spelled with. §5's rule is "the string is not the
+  one spelling this format fixes for that value, whatever the reason it is not",
+  and this port's README stated that rule two sections above the code that did not
+  follow it;
+- `"rsa"` for `author.algorithm` and `"delete"` for an entry's `action` were
+  `MALFORMED`; §5 says a value this version does not define is "reported as a field
+  value it does not define", which is `UNKNOWN_FIELD`;
+- a `content_sha256` that is not a string at all was reported by
+  `L0.PROVENANCE.CONTENT_HASH_FORMAT` as a spelling problem, where §5's second
+  paragraph makes "it is not a string" `MALFORMED`;
+- an empty `key_id` passed the field rules and was compared against the derived
+  key, so one defect arrived as four `MISMATCH`es instead of one `MALFORMED` from
+  the check that owns the field's shape.
+
+What the pass settled is a rule rather than a dozen fields: **a requirement has
+exactly one owner.** It is the head of §10 now, §10.2 is that rule applied to all
+30 checks — what each row requires and the value it owns — and §5, §7 and §8 say it
+where the fields and the encodings are described. `test/schema.test.js` holds the
+code to it: every kind the schema declares is exercised with a value it accepts and
+one it refuses, the two readers use only declared kinds, no field whose string
+another check reads carries `non_empty` or a spelling kind, and the fields that do
+carry `non_empty` are exactly the fields no other check reads.
+
+Three probes were added rather than one, because the finding is about a *family* of
+fields and the fixture is the smallest artifact that shows it:
+`log-line-empty-content-hash`, `log-line-empty-signature`, `log-line-bad-parent`.
+The probe's builder also refuses a *second* thing now, and it is the change that
+keeps this pass from happening again: it writes nothing when the reference and this
+port disagree about a case, and says which case and which check. Recording either
+of two answers would have filed a divergence as a settled answer, which is what the
+first 20 probes were one `MISSING` away from doing. Both gates were proven by
+breaking them on purpose and reverting: the probe's refusal by making this port
+answer one case differently (it named the case and wrote nothing), and
+`test/schema.test.js` by putting `non_empty: true` back on `content.sha256` and by
+giving `parent` a spelling kind again (it failed both ways, with the sentence that
+says why).
+
+`git diff -- verifier/` for this pass is field specs, two owning checks and the
+base64url reader: no check's logic changed, no artifact in `vectors/out/` is a
+different file, and `node vectors/run.js` still replays 54 of 54 against the same
+54 recorded answers — the probe is what grew, from 20 cases to 23, and `git diff`
+on `vectors/probe/expected.json` is that file's note plus the three new cases.
 
 The finding the probe turned up is the one with a code change behind it. An entry
 with no `content_sha256` at all was reported `NON_CANONICAL_ENCODING` by

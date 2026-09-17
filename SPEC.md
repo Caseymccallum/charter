@@ -58,15 +58,82 @@ A single end-of-central-directory record, found by scanning backwards over at
 most 65,535 bytes, describes a central directory that lies inside the file and
 declares exactly as many entries as it contains. Each central directory record
 points at a local header, and the local header's name is byte-for-byte the
-central directory's name. `L0.ZIP.READABLE` fails when any of that does not
-hold, and no other check runs: there is no container to read.
+central directory's name. An entry's name is a UTF-8 string, and one that is not
+is `DECODE_ERROR`: the entry set is a claim about names, and a reader that cannot
+read a name cannot say which entry it read. `L0.ZIP.READABLE` fails when any of
+that does not hold, and no other check runs: there is no container to read.
+
+Those clauses are settled in the order they are stated, and the order is part of
+the rule rather than a description of one reader. The directory is walked to its
+declared end first — every record present, inside the file, beginning with its
+signature — and a record's name is compared with the local header it points at
+only once that walk has finished. One byte removed from the middle of the
+directory moves every later record while every number the file states about the
+directory still says what it said; a reader that compared each name as it read
+would report a name disagreement about a record whose *position* the file no
+longer states, and would never say the plainer thing, which is that the directory
+does not hold the records it declares. That plainer thing is `MALFORMED`'s, so it
+is the shape of the whole directory that is established first, and a name read out
+of a walk that did not finish is not a claim the file makes.
+
+The reason a refusal carries says which of those did not hold, and the
+distinction is not decoration — it is the difference between a file that lies
+about its own shape and two places where the file contradicts itself:
+
+- **`MALFORMED`** is for bytes that are not the shape the format requires: no end
+  record at all, a record that does not begin with its signature, a name or a
+  data run that ends past the file, an offset that names bytes no header starts
+  at, or an end record whose counts disagree with each other.
+- **`MISMATCH`** is for a value the file states twice and states differently: the
+  name in a local header and the name in the central directory that points at it,
+  or the two flag words. Both copies are well formed and one claim is false,
+  which is a different sentence from "these bytes are not a header".
+- **`UNSUPPORTED_VERSION` and `UNSUPPORTED_FEATURE`** are not failures. An end
+  record that carries ZIP64's `0xFFFF` and `0xFFFFFFFF` markers, or that says the
+  archive is one disk of a set, describes something this verifier does not
+  implement rather than something that is wrong, and §3.2 says which of the two
+  codes each carries. The artifact comes back `INCOMPLETE`, never `BROKEN`: an
+  archive this reader will not guess at is unproven, not refuted.
+
+Two things a reader might expect here are deliberately not here. The *size* the
+end record declares for the directory is not compared against the records inside
+it at this point — that the directory lies inside the file is legibility, and
+whether it is the size its records use is §3.4's `L0.ZIP.LAYOUT`, which reports
+`MISMATCH` for it. And a local header's name is compared with the record's, not
+with the three names §3.4 requires: whether the *set* of names is the right set
+is `L0.ZIP.ENTRY_SET`'s, and it is a check, not a refusal.
 
 ### 3.2 Feature level
 
-No ZIP64. Every entry's "version needed to extract" is at most 20 (2.0), on one
-disk. `L0.ZIP.VERSION` reports UNSUPPORTED for ZIP64 and for a multi-disk
-archive, because a reader that guessed at a 64-bit size would be guessing at
-the bytes.
+No ZIP64, and one disk. The format says so in two places, and each is read by the
+check that can.
+
+- **The end record.** Its two entry counts, its directory size and its directory
+  offset are the fields ZIP64 replaces with `0xFFFF` and `0xFFFFFFFF`, and the
+  same record says which disk of a set this file is. An archive whose end record
+  carries one of those markers, or that declares any disk but the first, does not
+  describe a directory this reader can walk, so `L0.ZIP.READABLE` reports it:
+  `UNSUPPORTED_VERSION` for a ZIP64 marker and `UNSUPPORTED_FEATURE` for a disk,
+  with status `UNSUPPORTED` rather than `FAIL`, and no other check runs. §10.1 is
+  why the gate is the check that reports it and not `L0.ZIP.VERSION`: the fact
+  VERSION needs is the end record, and a record this reader will not interpret is
+  a fact nobody established.
+- **Each entry.** Every entry declares in both copies of its header the ZIP
+  feature level it needs, and it is at most 20 (2.0). `L0.ZIP.VERSION` reports
+  `UNSUPPORTED_VERSION` for a higher one, because a level above 2.0 names
+  something this verifier does not implement — the same code, in the same voice,
+  as an archive that announces ZIP64 in its end record. The copy this check reads
+  is the central directory's, which is the copy §3.5 makes authoritative for a
+  claim the file states twice; two copies that disagree are `L0.ZIP.METADATA`'s
+  `MISMATCH`, and a reader that took the higher of the two would report a feature
+  level the entry may not need — the local header's copy is not a second opinion,
+  it is the same claim written down twice.
+
+A bare `0xFFFFFFFF` in a size field is *not* ZIP64: the marker is the version
+needed, or a ZIP64 extra field beside it. It is a number above a ceiling in §3.7,
+so the check that would read those bytes reports `LIMIT_EXCEEDED` — and a size
+larger than the bytes the file holds is not a ceiling at all but a legibility
+failure, which the gate reports before anybody measures anything.
 
 ### 3.3 Compression and flags
 
@@ -82,6 +149,13 @@ data descriptor, `0x0020` patched data, `0x0040` strong encryption, `0x2000` a
 masked local header. Any other bit is FAIL with reason EXTRA. All of this is
 `L0.ZIP.FLAGS`.
 
+The flag word is the one value in the container whose two copies are not
+`L0.ZIP.METADATA`'s to compare. A reader has to agree with itself about flags
+before it can decode anything, so two flag words that differ are a refusal with
+reason `MISMATCH` at `L0.ZIP.READABLE` (§3.1), and `L0.ZIP.FLAGS` is SKIP behind
+it. What this check reads, when it runs, is a flag word the file states the same
+way twice.
+
 ### 3.4 Layout
 
 Every byte of the file is accounted for by a local header, an extra field, an
@@ -90,6 +164,44 @@ nothing before the first header, nothing between entries, nothing between the
 last entry and the central directory, nothing after the end record, and no
 archive comment. `L0.ZIP.LAYOUT` fails with reason EXTRA when bytes appear
 where the format does not put them.
+
+The order that sentence fixes is the order of the *kinds* of thing, not the order
+of the three entries. ZIP fixes no order for the records in the central
+directory, a writer that sorts its records by name is writing a well-formed
+archive, and neither the entries nor the directory record has to be listed in the
+order the other appears in the file. What the rule states is a property of the
+byte ranges, so it is the ranges that are walked, in file order — which is why
+the same three entries, reordered in the body and in the directory, are still a
+charter, and why a directory whose records are in another order than the body is
+not a defect at all.
+
+Two ways a range can be wrong, and they are two different sentences:
+
+- **A gap**, where a range begins after the previous one ends, is bytes the
+  format does not account for: `EXTRA`, with the count of the bytes in the gap.
+- **An overlap**, where a range begins inside one already claimed — two records
+  naming one local header, or a size that runs into the next entry — is two
+  claims about the same bytes: `MISMATCH`. Nothing is missing from the file; two
+  parts of it are describing the same bytes twice.
+
+Three facts of the end record are read with the ranges rather than trusted: the
+size it declares for the directory has to be the size its records use
+(`MISMATCH` when it is not), the offset it declares has to be where the ranges
+end, and its own position has to be where the directory ends (`EXTRA` when the
+directory and the record are not adjacent, and when anything follows the record).
+The size its records use is the sum of their extents — the 46 bytes of a record's
+fixed part, its name, and the extra field and the comment it declares — so a
+record whose declared extent reaches past the end of the file is a record this
+check counted and a directory whose numbers do not add up. It is not the gate's
+complaint: the gate reads *names*, and a name that ends past the file is bytes
+nobody can read, while a record whose extra field or comment does is a number
+that belongs here.
+The offset is compared in both directions, and they are the two sentences above:
+`EXTRA` when the ranges end *before* it, because the bytes between them and the
+directory are bytes nothing accounts for, and `MISMATCH` when a range ends
+*after* it, because there the last entry's data and the directory are two claims
+about the same byte. A number nobody compares is a byte a forged file can change
+for free, and the declared extent of the directory is one of them.
 
 This is the rule that makes "the three entries" a claim about the file rather
 than a claim about a lookup table. Without it, an archive can hold a second
@@ -116,6 +228,12 @@ holds, and both are true of the bytes actually in the file. `L0.ZIP.SIZES` and
 `L0.ZIP.CRC32` are the two checks that have to decompress in order to answer,
 and they are also the two checks that catch a container whose headers have been
 edited around untouched payload bytes.
+
+Both of them read the copy of that claim in the central directory. The local
+header's copy is §3.6's to compare — `L0.ZIP.METADATA` reports the two
+disagreeing — and a check that measured both copies would report one edited
+header twice and take the complaint away from the check whose requirement it
+actually breaks.
 
 ### 3.6 Metadata the format fixes
 
@@ -179,7 +297,15 @@ before it is inflated, and a JSON document's length is compared before it is
 decoded or parsed. An input above a ceiling is refused with `LIMIT_EXCEEDED`,
 which is a `FAIL` and therefore `BROKEN` — the artifact is not called unproven,
 because a file that is too large to check is a file this verifier has not
-checked.
+checked. The check that reports a ceiling is the one whose work it bounds, so
+`L0.ZIP.READABLE` carries the whole file's, `L0.ZIP.ENTRY_DATA` an entry's, and
+`L0.MANIFEST.PARSE` a document's.
+
+A size that is larger than the bytes the file actually holds is not a ceiling and
+is not measured here: the bytes it names are not in the file, which is §3.1's
+question, and the gate answers it before any ceiling is compared. `LIMIT_EXCEEDED`
+is the word for a size this verifier refuses to *work* on, not for a size the file
+cannot honour.
 
 ## 4. Canonical JSON
 
@@ -292,9 +418,15 @@ One canonical JSON object, one LF, and no other field than these six:
 **A field's spelling belongs to the check that reads it.** `L0.MANIFEST.FIELDS`
 answers whether the fields are present and whether each holds the JSON value the
 table names, and nothing more: an uppercase digest, a key that is not 32 bytes
-and a signature written with `=` all pass it. The checks that *read* those values
-report what is wrong with the encoding, and a field that is not there at all is
-reported as an absence rather than as a spelling:
+and a signature written with `=` all pass it. An empty digest, an empty signature
+and an empty public key pass it too — `""` is a string, and what is wrong with it
+is a fact about the *value*, a digest of no characters or a signature of no
+bytes, which is the reading check's sentence to write. "A non-empty string" in the
+table is FIELDS' own requirement for the fields no other check reads (`title`,
+`author.name`, `author.key_id`), and it is the whole of what FIELDS says about
+them. The checks that *read* those values report what is wrong with the encoding,
+and a field that is not there at all is reported as an absence rather than as a
+spelling:
 
 | Value | Check | Present, and not the one spelling of its value | Absent |
 | --- | --- | --- | --- |
@@ -307,8 +439,9 @@ is missing.** NON_CANONICAL_ENCODING means the string is not the one spelling
 this format fixes for that value, whatever the reason it is not: `0097e5…` and
 `0097E5…` are not two digests, they are one digest spelled two ways; a string of
 63 hex characters is not the spelling of any digest; and a base64url string with
-`=` padding, with a character outside the alphabet, or with trailing bits that
-are not zero is not the one spelling of its bytes either. Every one of those
+`=` padding, with a character outside the alphabet, with a length no byte string
+is spelled with, or with trailing bits that are not zero is not the one spelling
+of its bytes either. Every one of those
 carries NON_CANONICAL_ENCODING, from the check that reads the value and from no
 other. MALFORMED is for the cases where the string *is* an encoding and the value
 is wrong in some other way — it is not a string, or not the JSON type the table
@@ -340,7 +473,9 @@ which is the whole difference between syntax and semantics in this format.
 runs before the fields can be read is the check that has to report a field that
 is not there: a `format` that is absent is MISSING, one that is not a string is
 MALFORMED, and a value this verifier does not implement produces UNSUPPORTED and
-stops the manifest checks. Stops means the checks after it are SKIP, with reason
+stops the manifest checks. The empty string is in the third case and not the
+second: it is a string, and it is not the identifier this verifier implements.
+Stops means the checks after it are SKIP, with reason
 UNSUPPORTED_VERSION rather than PREREQUISITE_FAILED, so that a reader can tell
 "nobody read the rules for this version" from "the rules were read and something
 in them broke". Applying the rules of charter/0.1 to a file that declares
@@ -400,7 +535,15 @@ As in the manifest, `L0.PROVENANCE.FIELDS` answers whether the seven fields are
 present and hold the JSON values the table names, and the spelling of a value is
 the business of the check that reads it: `L0.PROVENANCE.CONTENT_HASH_FORMAT` for
 `content_sha256`, `L2.CHAIN.LINKS` for `parent`, and `L1.PROVENANCE.SIGNATURES`
-for the signature. The digest is the value whose codes section 5 spells out, and
+for the signature. An empty one is that check's to report as well: `""` is a
+string, so FIELDS passes it, and "a digest of no characters" is a sentence for the
+check that reads the digest. `summary`, `author.name` and `author.key_id` are the
+fields no other check reads, and there FIELDS owns the shape the table names: a
+non-empty string. `action` is an enumeration, and a string this version does not
+define in it is UNKNOWN_FIELD, as an algorithm this version does not define is in
+the manifest; a value that is not a string at all is MALFORMED, because it does
+not hold the JSON value the table names. The digest is the value whose codes
+section 5 spells out, and
 both of them are here as they are there: NON_CANONICAL_ENCODING when the string is
 not 64 lowercase hex characters — whatever the reason, a length, a case, or a
 character that is not a hex digit — and MISSING when there is no such field at
@@ -430,6 +573,15 @@ One algorithm: Ed25519 (`ed25519`). A public key is 32 bytes and a signature is
 `=` is not allowed, and a trailing bit pattern that is not zero (the classic
 `AB` versus `AA` ambiguity) is refused: canonical base64url has one spelling per
 byte string, and this format uses that one.
+
+Every way a string fails to be that one spelling — a character outside the
+alphabet, a length no byte string is spelled with, `=` padding, trailing bits that
+are not zero — carries NON_CANONICAL_ENCODING, from the check that reads the value.
+A string that decodes, and decodes to a byte string of the wrong length for its
+algorithm, carries MALFORMED instead: that is a fact about the value rather than
+about its spelling. The empty string is the shortest case of it — `""` is the one
+spelling of the empty byte string, so a signature field holding one has a
+signature of 0 bytes where Ed25519 uses 64.
 
 A key id is the name of a key, and it is derived rather than declared:
 
@@ -500,6 +652,21 @@ better than it is:
   shrugged at a compression method it does not implement would be signing off on
   bytes it never read.
 
+**A requirement has exactly one owner.** A check reports a defect only when the
+requirement in its own row does not hold, and where two checks could measure the
+same thing, the one that *reads* the value owns it. `L0.MANIFEST.FIELDS` and
+`L0.PROVENANCE.FIELDS` answer whether a field is present and holds the JSON kind
+§5 and §7 name for it, and the spelling of the string inside it belongs to the
+check that uses the value: `L0.CONTENT.HASH` and
+`L0.PROVENANCE.CONTENT_HASH_FORMAT` for a digest, `L1.MANIFEST.SIGNATURE` and
+`L1.PROVENANCE.SIGNATURES` for a signature, `L1.MANIFEST.KEY_ID` for a public
+key, `L2.CHAIN.LINKS` for a `parent`, and `L0.FORMAT.IDENTIFIER` for `format`. A
+field no other check reads is FIELDS' whole requirement, and "a non-empty string"
+is the whole of it there. §10.2 is that division, check by check. It is §10.1's
+rule — one fact, one check that establishes it — applied to a value rather than
+to a fact, and for the same reason: a defect reported twice is a defect two
+implementations can disagree about.
+
 Three verdicts, over all 30 checks:
 
 | Verdict | Condition | Exit code |
@@ -555,7 +722,7 @@ The 30 checks, in the order they always appear in a verdict:
 | L0 | `L0.CONTENT.HASH` | the digest of the content matches the manifest |
 | L0 | `L0.PROVENANCE.PARSE` | one JSON object per LF-terminated line |
 | L0 | `L0.PROVENANCE.CANONICAL` | each line is its canonical form plus one LF |
-| L0 | `L0.PROVENANCE.FIELDS` | the seven fields of every entry, typed and encoded |
+| L0 | `L0.PROVENANCE.FIELDS` | the seven fields of every entry, present and correctly typed |
 | L0 | `L0.PROVENANCE.EXTRA_FIELDS` | no field this version has no rule for |
 | L0 | `L0.PROVENANCE.NONEMPTY` | at least one entry, counted as entries and not as lines |
 | L0 | `L0.PROVENANCE.CONTENT_HASH_FORMAT` | every `content_sha256` is a lowercase digest |
@@ -611,6 +778,17 @@ the archive — holds, and the verdict is broken for a reason no other check's
 answer depends on. What gates is the entry being *absent*, which is the one way
 that fact is not established.
 
+The same rule one entry down: **a fact that names one entry gates that entry, not
+the check that reads it.** `L0.ZIP.SIZES` and `L0.ZIP.CRC32` are asked of every
+entry, so an entry whose bytes cannot be read leaves them with nothing to say
+about *it* and everything to say about the rest — a declared size that is not the
+size of the bytes is reported, because the check measured those bytes and that is
+what it found. SKIP is for a check that has no answer at all, which here means
+every answer it gave was "not measurable". A check that measured a defect and
+reported an absence of evidence instead would be a verdict that reads worse than
+the file, and the number of skips is part of the recorded answers precisely so
+that this is not a matter of taste.
+
 The facts are facts about named things, which is what makes the third row
 answerable. The checks that read `manifest.json` are `L0.FORMAT.IDENTIFIER`, the
 four `L0.MANIFEST.` checks, `L0.CONTENT.HASH`, all five `L1.` checks and
@@ -638,6 +816,159 @@ A check that is *itself* the owner does not skip: a signature that cannot be
 verified because the file's key is not a key is a FAIL with the reason the key
 carries, not an absence of an answer. An absence of an answer is for the checks
 that were never asked.
+
+### 10.2 One requirement, one owner
+
+The paragraph at the head of this section is a rule about who answers. This is
+that rule applied to all 30 checks: what each row requires, and the value the
+check owns — the one no other check in a verdict reports. It is the same
+registry, read against the question "if this goes wrong, which check says so?",
+and it is here because that question has bitten: three times in this format's
+history a check has measured a string that another check reads, and each time two
+implementations that were both "right" disagreed about the answer. A row here
+names one owner per value, so a defect reported twice is a defect a reader can
+call a bug rather than a judgement.
+
+| Check | The requirement its row states | The value it owns | Settled by |
+| --- | --- | --- | --- |
+| `L0.ZIP.READABLE` | the artifact is a ZIP this verifier can walk | whether there is an archive at all, and the end record's own version and disk facts: with neither, there is nothing else to read | `fixture` `not-a-zip`; `corpus` `central-offset-to-other-header`, `eocd-zip64-marker`, `eocd-multi-disk`, `entry-name-length-copies-differ`, `entry-byte-deleted-mid-directory`, `entry-name-not-utf8` |
+| `L0.ZIP.VERSION` | no ZIP64 in what an entry needs | each entry's declared feature level, read from the directory's copy of its header | `corpus` `entry-version-needed-zip64`, `entry-version-needed-local-only` |
+| `L0.ZIP.FLAGS` | no general purpose bit other than the three allowed | each entry's flag word, once the file has stated it the same way twice | `fixture` `encrypted-flag`; `corpus` `flag-word-above-the-format` |
+| `L0.ZIP.LAYOUT` | every byte is accounted for, in file order | the byte ranges, and the three facts of the end record that describe them | `corpus` `local-extra-entry-uncounted` (a gap), `entry-central-record-twice` (an overlap), `eocd-cd-size-wrong`, `entry-extra-len-off-by-one` (a range past the directory), `central-extra-len-past-eof`, `local-extra-field-unread` (bytes nothing reads) |
+| `L0.ZIP.METADATA` | no host, disk, clock or attributes; both copies of every other claim agree | the container's metadata fields — every repeated claim but the flag word, which the gate refuses a disagreement about | `fixture` `stamped-by-a-clock`; `corpus` `local-compressed-size-off-by-one`, `local-crc-zeroed`, `entry-version-needed-local-only` |
+| `L0.ZIP.ENTRY_SET` | exactly the three required entries | which names are in the archive | `fixture` `missing-entry`, `duplicate-entry`, `extra-entry` |
+| `L0.ZIP.ENTRY_DATA` | stored or raw-deflated, and it decodes | each entry's method, the bytes it decodes to, and the entry's two ceilings | `fixture` `unsupported-method`, `stored-declared-deflated`; `corpus` `entry-uncompressed-size-above-ceiling` |
+| `L0.ZIP.SIZES` | the declared uncompressed size is the real one | the declared sizes, as the directory states them, for every entry that can be read | `fixture` `wrong-declared-size`; `corpus` `unsupported-method-beside-a-wrong-size` (the measurement a check keeps when another entry cannot be read) |
+| `L0.ZIP.CRC32` | the declared CRC-32 is the real one | the declared checksums, as the directory states them | `fixture` `wrong-declared-crc` |
+| `L0.FORMAT.IDENTIFIER` | `manifest.format` is exactly `"charter/0.1"` | `format`: absent is MISSING, not a string is MALFORMED, any other string — the empty one included — is a version this verifier does not implement | `fixture` `unsupported-format`; `probe` `manifest-format-missing`, `manifest-format-not-a-string`, `manifest-empty-format` |
+| `L0.MANIFEST.PARSE` | one well-formed JSON object | the manifest's bytes as JSON | `fixture` `manifest-too-large`; `probe` `manifest-array`, `zero-lead`, `manifest-duplicate-key` |
+| `L0.MANIFEST.CANONICAL` | the bytes are the canonical form plus one LF | the bytes as a spelling of the value they parse to | `fixture` `noncanonical-manifest`; `probe` `escape-solidus` |
+| `L0.MANIFEST.FIELDS` | the required fields, present and correctly typed | presence and JSON kind; and, because no other check reads them, `title`, `author.name` and `author.key_id` as non-empty strings | `fixture` `manifest-field-unreadable`; `probe` `manifest-empty-key-id` |
+| `L0.MANIFEST.EXTRA_FIELDS` | no field this version has no rule for | the manifest's field names, at any depth | `fixture` `manifest-extra-field`; `probe` `nested-unknown-author-field` |
+| `L0.CONTENT.UTF8` | valid UTF-8, no byte order mark | the content's bytes as text | `fixture` `content-bom` |
+| `L0.CONTENT.HASH` | the digest of the content matches the manifest | `content.sha256` as a digest: its spelling and, of course, its value | `fixture` `content-tampered`; `probe` `digest-uppercase` |
+| `L0.PROVENANCE.PARSE` | one JSON object per LF-terminated line | the log's framing: its final byte, its lines, and each line as JSON | `fixture` `unterminated-log`; `probe` `log-is-not-an-object`, `log-is-a-bare-number` |
+| `L0.PROVENANCE.CANONICAL` | each line is its canonical form plus one LF | each line's bytes as a spelling of the object it parses to | `probe` `log-line-with-crlf`, `log-line-not-canonical` |
+| `L0.PROVENANCE.FIELDS` | the seven fields of every entry, present and correctly typed | presence and JSON kind; and, because no other check reads them, `summary`, `author.name` and `author.key_id` as non-empty strings, and `action` as a value this version defines | `probe` `log-line-not-canonical` (presence and kind), `manifest-empty-key-id` (the same reading, one document over) |
+| `L0.PROVENANCE.EXTRA_FIELDS` | no field this version has no rule for | each entry's field names, at any depth | `fixture` `entry-extra-field`; `probe` `log-line-unknown-field` |
+| `L0.PROVENANCE.NONEMPTY` | at least one entry, counted as entries and not as lines | whether the log holds an entry | `fixture` `empty-log` |
+| `L0.PROVENANCE.CONTENT_HASH_FORMAT` | every `content_sha256` is a lowercase digest | `content_sha256` in every entry: its absence, its JSON kind, and its spelling | `probe` `log-line-empty-content-hash`, `log-line-not-canonical` |
+| `L1.MANIFEST.KEY_ID` | the key id is the derivation of the public key | `author.public_key` as a key, and the comparison against `author.key_id` | `fixture` `key-id-not-derived`; `probe` `public-key-31-bytes`, `public-key-trailing-bits` |
+| `L1.MANIFEST.SIGNATURE` | the manifest signature verifies | `signature` as a signature, over the bytes §4.1 names | `fixture` `bad-manifest-signature`; `probe` `signature-padded` |
+| `L1.PROVENANCE.FIRST_AUTHOR` | the first entry names the manifest's key | the first entry's `author.key_id` as a claim about the key | `fixture` `key-id-not-derived` |
+| `L1.PROVENANCE.KEYS` | every entry names the key the file carries | every other entry's `author.key_id` | `fixture` `foreign-key-entry` |
+| `L1.PROVENANCE.SIGNATURES` | every entry signature verifies | every entry's `signature` | `fixture` `entry-edited`; `probe` `log-line-empty-signature` |
+| `L2.CHAIN.FIRST_PARENT_NULL` | the first entry starts from nothing | the first entry's `parent`, whatever it holds: a chain that starts here may not name a predecessor | `probe` `log-first-parent-nonnull`; `fixture` `log-reordered` |
+| `L2.CHAIN.LINKS` | every `parent` is the digest of the line before it | every later entry's `parent`: its spelling, its presence, and the line it hashes | `fixture` `parent-hash-unknown`; `probe` `log-line-bad-parent` |
+| `L2.CHAIN.HEAD_MATCHES_CONTENT` | the head describes the content the manifest describes | the last entry's `content_sha256` against the digest the manifest declares | `fixture` `content-hash-rewritten` |
+
+Four readings were ambiguous enough that two implementations read them
+differently and no fixture asked about them, and this pass settled each by asking
+which check the row gives the value to:
+
+- **An empty string in a field another check reads.** `""` is a string, so FIELDS
+  passes it; the length and spelling rules are the reading check's. An empty digest
+  is `NON_CANONICAL_ENCODING` (not 64 lowercase hex characters), an empty signature
+  and an empty public key are `MALFORMED` (0 bytes where the algorithm uses 64 and
+  32), and an empty key id or title is `MALFORMED` from FIELDS, because no other
+  check reads it.
+- **A `parent` that is not a digest.** FIELDS passes anything that is a string or
+  null; `L2.CHAIN.LINKS` reports `NON_CANONICAL_ENCODING` for a spelling that is
+  not 64 lowercase hex characters, `MISMATCH` for a digest of the wrong line, and
+  `MISMATCH` for `null` on an entry that is not the first. The first entry's parent
+  is not LINKS' at all: any non-null value there is
+  `L2.CHAIN.FIRST_PARENT_NULL`'s `MISMATCH`, because the requirement is that the
+  chain start from nothing.
+- **A value no enumeration defines.** `"rsa"` for `author.algorithm` and
+  `"delete"` for an entry's `action` are `UNKNOWN_FIELD`, which is the
+  vocabulary's word for a thing this verifier has no rule for, and §5 already said
+  so for the algorithm: "reported as a field value it does not define, not skipped
+  over". A value that is not a string at all is `MALFORMED`.
+- **A `format` that is a string and not the identifier.** `UNSUPPORTED_VERSION`,
+  the empty string included, because §5's three cases are "absent", "not a string"
+  and "a value this verifier does not implement", and `""` is the third.
+
+A reader can hold the table to that: in any verdict, a `FAIL`'s `detail` is a
+sentence about the value in the third column, and no two checks report one
+artifact's defect in the same value — the second check is SKIP, because the fact
+it needed was never established (§10.1).
+
+### 10.3 The audit's audit
+
+The fourth column above says where each row's answer can be checked, and it is
+the one column in this document whose values are names of files. Three kinds of
+case appear in it, and each of them is committed, replayable, and recorded with
+the answer the reference gives:
+
+- **`fixture`** — a case in the conformance kit (`vectors/out/`,
+  `vectors/expected.json`), which every implementation has to reproduce or fail
+  the kit.
+- **`probe`** — a case in the differential probe (`vectors/probe/`), which
+  records both implementations' answers for questions the kit does not ask.
+- **`corpus`** — a case in the container corpus (`vectors/container/`), which
+  mutates one byte-level structure at a time and records what both
+  implementations said about it.
+
+The totals are **25 rows settled by a kit fixture, 16 by a probe case, 7 by a
+corpus case, and none by prose alone**. Those numbers are larger than 30 because
+several rows have more than one face: `L0.ZIP.READABLE` has a file that is not a
+container at all and a container that is one disk of a set, `L0.ZIP.ENTRY_DATA`
+has a method nobody implements and a size above a ceiling, and each of those rows
+names a case for each face it has.
+
+No row is `prose`, and the reason is the rule this column is made of: a
+requirement that no single input can demonstrate is not a requirement about a
+file. There is exactly one rule of that shape in this document, and it is the
+paragraph at the head of §10 rather than a row — **a requirement has exactly one
+owner**, which is a property of the table and is demonstrated by the table
+itself: every row names one value, and no two rows name the same one. The two
+`FIELDS` rows come closest to it, because their requirements carry the clause
+"because no other check reads them". That clause is a property of the table as
+well, and the cases cited for those rows are its observable form: a verdict in
+which FIELDS fails and every check that would read the value is SKIP is what "no
+other check reads it" looks like from outside a table.
+
+The corpus is the newest of the three and the one whose first run changed the
+most: 11 of its first 26 cases came back with two different answers, and one of
+the two was wrong in every one of them. §3 now states the readings that settled
+them — §3.1 the reason a refusal carries (a file that lies about its own shape is
+`MALFORMED`, and two claims about one fact are `MISMATCH`), §3.2 which check
+reports a ZIP64 marker or a second disk (`L0.ZIP.READABLE`, as an unsupported
+archive rather than a broken one), §3.3 that two flag words are a refusal rather
+than `L0.ZIP.METADATA`'s comparison, §3.4 that the layout rule is about byte
+ranges walked in file order, with a gap and an overlap carrying different reasons,
+§3.5 that the size and CRC-32 checks read the directory's copy of the claim, and
+§3.7 which check carries a ceiling.
+
+The corpus has grown eight cases since, built by hand from the three shapes a
+fuzzer recommendation named and the sweep that decided against building one, and
+each of them reached a sentence the first 26 had not. §3.1 now says the shape of
+the directory is established before any record's name is compared, because one
+byte removed from the middle of the directory reads as a *name* disagreement to a
+reader that compares names as it walks, and it says that a name is a UTF-8 string
+— `DECODE_ERROR` when it is not, since a reader that cannot read a name cannot say
+which entry it read. §3.2 says which copy of an entry's feature level the check
+reads: the directory's, which is §3.5's rule for every claim the file states
+twice. §3.4 states the direction of the directory-offset comparison — `EXTRA` for
+a gap before the directory and `MISMATCH` for a range that runs past it — and what
+"the size its records use" is, so that a record whose declared extent reaches past
+the file is a number the layout check reads rather than a refusal at the gate.
+§10.1 gained the rule one entry down from its own **the gate is the fact, not the
+status**: a fact that names one entry gates that entry and not the check that
+reads it, so a check that measured a defect reports it instead of hiding it behind
+an entry it could not read. That case is the one whose `spec` is null rather than
+a section of 3, because its answer is §10.1's.
+
+Five of the eight moved the port, one moved both implementations (`entry-extra-len-off-by-one`:
+§3.4 had no direction to be wrong about, so both readers answered `EXTRA` where
+the rule requires `MISMATCH`), and two moved nobody — one enforced a rule §3.1
+already stated, and one records something no implementation can be wrong about:
+`local-extra-field-unread` is a charter carrying a four-byte extra field, and it
+verifies in both, because §3.4 accounts for the bytes and no check reads them.
+That is the one family this pass leaves open: settling it changes the set of files
+that verify, which §14 makes a decision about the format rather than a patch.
+`implementations/python/README.md` records which implementation moved, case by
+case, with `vectors/container/README.md` beside it.
 
 ## 11. What this does not protect against
 

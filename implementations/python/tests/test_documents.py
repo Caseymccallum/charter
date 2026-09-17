@@ -10,6 +10,7 @@ from charter_verify.vocabulary import (
     MALFORMED,
     MISSING,
     NON_CANONICAL_ENCODING,
+    UNKNOWN_FIELD,
 )
 
 from .support import fixture_parts
@@ -106,10 +107,32 @@ class Base64UrlTest(unittest.TestCase):
         self.assertEqual(base64url.decode("AA"), b"\x00")
         self.assertEqual(reason_of(base64url.decode, "AB"), NON_CANONICAL_ENCODING)
 
-    def test_characters_outside_the_alphabet_are_malformed(self) -> None:
+    def test_characters_outside_the_alphabet_are_not_a_spelling(self) -> None:
+        """Every way a string fails to be the one spelling carries one code.
+
+        `A!`, `A+A`, `A/A` and `AAAAA` are not four kinds of malformation: none of
+        them is the one spelling of a byte string, and SPEC section 5's rule is
+        "the string is not the one spelling this format fixes for that value,
+        whatever the reason it is not". A length that no byte string is spelled
+        with is a reason like any other. MALFORMED is for the length of the *value*
+        — 63 bytes where a signature needs 64 — which is the caller's complaint,
+        because the caller is the one that knows what its algorithm needs.
+        """
         for text in ("A!", "A+A", "A/A", "AAAAA"):
             with self.subTest(text):
-                self.assertEqual(reason_of(base64url.decode, text), MALFORMED)
+                self.assertEqual(
+                    reason_of(base64url.decode, text), NON_CANONICAL_ENCODING
+                )
+
+    def test_the_empty_string_is_one_spelling_and_not_a_refusal(self) -> None:
+        """It is the one spelling of the empty byte string.
+
+        Whether a signature may be one is a question about length, and
+        `L1.MANIFEST.SIGNATURE` answers it MALFORMED; a refusal here would be this
+        module answering a question about the alphabet with the code for a
+        value of the wrong length.
+        """
+        self.assertEqual(base64url.decode(""), b"")
 
 
 class ManifestFieldsTest(unittest.TestCase):
@@ -138,8 +161,33 @@ class ManifestFieldsTest(unittest.TestCase):
         self.assertNotEqual(reason_of(documents.read_manifest, value), MALFORMED)
 
     def test_the_algorithm_is_an_enumeration_of_one(self) -> None:
+        """A value this version does not define is UNKNOWN_FIELD, not MALFORMED.
+
+        SPEC section 5: "An algorithm this version does not define is reported as
+        a field value it does not define, not skipped over." The vocabulary's word
+        for a thing the verifier has no rule for is UNKNOWN_FIELD, and this port
+        answered MALFORMED for a value it could read perfectly well until the
+        differential sweep asked it about `"rsa"`. A value that is not a string at
+        all is the other sentence: the field is there and does not hold the JSON
+        value the table names.
+        """
         value = self.base()
         value["author"]["algorithm"] = "rsa"
+        self.assertEqual(reason_of(documents.read_manifest, value), UNKNOWN_FIELD)
+        value["author"]["algorithm"] = 1
+        self.assertEqual(reason_of(documents.read_manifest, value), MALFORMED)
+
+    def test_the_key_id_may_not_be_empty(self) -> None:
+        """A key id is a name, and no other check reads it as a value.
+
+        `L1.MANIFEST.KEY_ID` compares the key id against the derivation of the key
+        beside it, so an empty one could be reported as a mismatch — but section
+        5's table gives `author.key_id` "a non-empty string" to FIELDS, and the
+        check that reads a value owns its *encoding* while the shape of a field
+        nobody reads is FIELDS'.
+        """
+        value = self.base()
+        value["author"]["key_id"] = ""
         self.assertEqual(reason_of(documents.read_manifest, value), MALFORMED)
 
     def test_the_title_may_not_be_empty(self) -> None:
@@ -220,8 +268,21 @@ class LogFieldsTest(unittest.TestCase):
             self.assertEqual(len(base64url.decode(entry.signature_text)), 64)
 
     def test_the_action_is_an_enumeration_of_two(self) -> None:
+        """The same two answers as the manifest's algorithm.
+
+        SPEC section 7 says "`"create"` or `"edit"`, and nothing else", and the
+        code for a value this version does not define is the vocabulary's word for
+        exactly that: UNKNOWN_FIELD. A value that is not a string is MALFORMED.
+        """
         value = self.lines()[0]
         value["action"] = "delete"
+        self.assertEqual(reason_of(documents.read_entry, value, b""), UNKNOWN_FIELD)
+        value["action"] = 1
+        self.assertEqual(reason_of(documents.read_entry, value, b""), MALFORMED)
+
+    def test_an_entry_s_key_id_may_not_be_empty(self) -> None:
+        value = self.lines()[1]
+        value["author"]["key_id"] = ""
         self.assertEqual(reason_of(documents.read_entry, value, b""), MALFORMED)
 
     def test_a_parent_is_null_or_a_string(self) -> None:

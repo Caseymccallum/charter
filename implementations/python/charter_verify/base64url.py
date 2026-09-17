@@ -5,23 +5,25 @@ pattern that is not zero (the classic `AB` versus `AA` ambiguity) is refused:
 canonical base64url has one spelling per byte string, and this format uses that
 one."
 
-Three refusals, and the reason codes separate them by what is wrong:
+Every way a string can fail to be the one spelling of its bytes carries
+NON_CANONICAL_ENCODING, whatever the reason it is not: a character outside the
+alphabet, a length no byte string can produce (one leftover character), `=`
+padding, and a non-zero trailing bit pattern. SPEC section 5 states the rule —
+"the string is not the one spelling this format fixes for that value, whatever
+the reason it is not" — and names two of the four cases. MALFORMED is not this
+module's to report: a string that is not a byte string of the length its
+algorithm requires is the *caller's* complaint, because the length is a fact
+about the value and not about the alphabet (section 5's second paragraph).
 
-* a character outside the alphabet, or a length no byte string can produce
-  (one leftover character), is MALFORMED: those bytes are not base64url at all;
-* `=` padding, and a non-zero trailing bit pattern, are NON_CANONICAL_ENCODING:
-  the bytes decode, and they are a second spelling of a byte string that
-  already has one. Accepting either would mean a public key with two names.
-
-The reason codes for these two cases are not stated per-case in the spec; the
-README in this directory records the guess and why this is the reading that
-keeps "one spelling per byte string" true.
+The empty string is not refused here. It is the one spelling of the empty byte
+string, and whether a signature may be one is a question about length, which the
+check that reads the field answers with MALFORMED.
 """
 
 from __future__ import annotations
 
 from .errors import Refusal
-from .vocabulary import MALFORMED, NON_CANONICAL_ENCODING
+from .vocabulary import NON_CANONICAL_ENCODING
 
 ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 _INDEX = {character: value for value, character in enumerate(ALPHABET)}
@@ -36,9 +38,9 @@ def decode(text: str, what: str = "value") -> bytes:
         )
     if len(text) % 4 == 1:
         raise Refusal(
-            MALFORMED,
-            f"{what} is {len(text)} base64url character(s), and no byte string "
-            "has that spelling",
+            NON_CANONICAL_ENCODING,
+            f"{what} is {len(text)} base64url character(s), which no byte string "
+            "is spelled with",
         )
     accumulator = 0
     bits = 0
@@ -47,7 +49,7 @@ def decode(text: str, what: str = "value") -> bytes:
         value = _INDEX.get(character)
         if value is None:
             raise Refusal(
-                MALFORMED,
+                NON_CANONICAL_ENCODING,
                 f"{what} holds {character!r}, which is not a base64url character",
             )
         accumulator = (accumulator << 6) | value

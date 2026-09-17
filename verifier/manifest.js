@@ -4,7 +4,16 @@
  * Field kinds are checked here; encodings that have a check of their own are
  * left to that check, so no two checks report the same defect. `format` is a
  * string here and "charter/0.1" in L0.FORMAT.IDENTIFIER; `content.sha256` and
- * `author.key_id` are strings here and digests in the checks that use them.
+ * `author.key_id` are strings here and digests in the checks that use them; and
+ * `signature` and `author.public_key` are strings here — base64url, and a
+ * signature and a key, in `L1.MANIFEST.SIGNATURE` and `L1.MANIFEST.KEY_ID`.
+ *
+ * The one kind that measures a string is `non_empty`, and it is on the fields
+ * whose shape in section 5's table is the whole requirement: `title`,
+ * `author.name` and `author.key_id`. Emptiness in a field another check reads is
+ * that check's complaint, because the string is not there for FIELDS to judge —
+ * an empty signature is not unpadded base64url decoding to 64 bytes, and
+ * L1.MANIFEST.SIGNATURE is the check that says so.
  *
  * @module verifier/manifest
  */
@@ -77,19 +86,19 @@ export function readManifest(value) {
   }
   const object = /** @type {Record<string, unknown>} */ (value);
 
-  const format = readField(object, 'format', { kind: 'string', non_empty: true }, 'manifest');
+  const format = readField(object, 'format', { kind: 'string' }, 'manifest');
   if (!format.ok) return { ok: false, path: 'manifest.format', reason_code: format.reason_code, detail: format.detail };
   const title = readField(object, 'title', { kind: 'string', non_empty: true }, 'manifest');
   if (!title.ok) return { ok: false, path: 'manifest.title', reason_code: title.reason_code, detail: title.detail };
   const createdAt = readField(object, 'created_at', { kind: 'timestamp' }, 'manifest');
   if (!createdAt.ok) return { ok: false, path: 'manifest.created_at', reason_code: createdAt.reason_code, detail: createdAt.detail };
-  const signature = readField(object, 'signature', { kind: 'string', non_empty: true }, 'manifest');
+  const signature = readField(object, 'signature', { kind: 'string' }, 'manifest');
   if (!signature.ok) return { ok: false, path: 'manifest.signature', reason_code: signature.reason_code, detail: signature.detail };
 
   const content = readField(object, 'content', { kind: 'object' }, 'manifest');
   if (!content.ok) return { ok: false, path: 'manifest.content', reason_code: content.reason_code, detail: content.detail };
   const contentObject = /** @type {Record<string, unknown>} */ (content.value);
-  const sha256 = readField(contentObject, 'sha256', { kind: 'string', non_empty: true }, 'manifest.content');
+  const sha256 = readField(contentObject, 'sha256', { kind: 'string' }, 'manifest.content');
   if (!sha256.ok) return { ok: false, path: 'manifest.content.sha256', reason_code: sha256.reason_code, detail: sha256.detail };
 
   const author = readField(object, 'author', { kind: 'object' }, 'manifest');
@@ -101,7 +110,7 @@ export function readManifest(value) {
   if (!algorithm.ok) return { ok: false, path: 'manifest.author.algorithm', reason_code: algorithm.reason_code, detail: algorithm.detail };
   const keyId = readField(authorObject, 'key_id', { kind: 'string', non_empty: true }, 'manifest.author');
   if (!keyId.ok) return { ok: false, path: 'manifest.author.key_id', reason_code: keyId.reason_code, detail: keyId.detail };
-  const publicKey = readField(authorObject, 'public_key', { kind: 'string', non_empty: true }, 'manifest.author');
+  const publicKey = readField(authorObject, 'public_key', { kind: 'string' }, 'manifest.author');
   if (!publicKey.ok) return { ok: false, path: 'manifest.author.public_key', reason_code: publicKey.reason_code, detail: publicKey.detail };
 
   const unknown =

@@ -55,12 +55,51 @@ function tally(result) {
 }
 
 test('the probe record still describes the artifacts on disk', () => {
-  assert.ok(RECORD.cases.length >= 20, `expected the probe's cases, found ${RECORD.cases.length}`);
+  assert.ok(RECORD.cases.length >= 26, `expected the probe's cases, found ${RECORD.cases.length}`);
   for (const entry of RECORD.cases) {
     const bytes = new Uint8Array(readFileSync(join(PROBE, entry.file)));
     assert.equal(bytes.length, entry.bytes, `${entry.name}: the file is not the length the record claims`);
     assert.equal(sha256Hex(bytes), entry.sha256, `${entry.name}: the file is not the file the record claims`);
   }
+});
+
+test('the three cases that found a field measuring a string another check reads are still asked', () => {
+  // SPEC.md section 10's head and 10.2 are the rule these three are the test of:
+  // an empty `content_sha256`, an empty signature and a parent in uppercase were
+  // each a FAIL from L0.PROVENANCE.FIELDS, which took the complaint away from
+  // L0.PROVENANCE.CONTENT_HASH_FORMAT, L1.PROVENANCE.SIGNATURES and
+  // L2.CHAIN.LINKS and skipped the checks that had an answer. Asking again is the
+  // only way a fixture can hold a rule nobody has violated twice.
+  const names = new Set(RECORD.cases.map((entry) => entry.name));
+  for (const name of ['log-line-empty-content-hash', 'log-line-empty-signature', 'log-line-bad-parent']) {
+    assert.ok(names.has(name), `${name} is not in the probe record`);
+  }
+});
+
+test('the three readings that were only prose are fixtures now', () => {
+  // These three were settled by asking which check a row gives the value to,
+  // written into SPEC.md sections 5 and 10.2, and held by this repository's own
+  // tests — but a rule the repository's tests hold is not a rule a stranger can
+  // check. Section 10.2's `settled by` column names each of them now.
+  const names = new Set(RECORD.cases.map((entry) => entry.name));
+  for (const name of ['manifest-empty-format', 'manifest-empty-key-id', 'log-first-parent-nonnull']) {
+    assert.ok(names.has(name), `${name} is not in the probe record`);
+  }
+  const byName = new Map(RECORD.cases.map((entry) => [entry.name, entry]));
+  assert.deepEqual(
+    byName.get('manifest-empty-format').expected.unsupported,
+    { 'L0.FORMAT.IDENTIFIER': 'UNSUPPORTED_VERSION' },
+    'an empty format is a version this verifier does not implement, not a malformation',
+  );
+  assert.deepEqual(
+    byName.get('manifest-empty-key-id').expected.fail,
+    { 'L0.MANIFEST.FIELDS': 'MALFORMED' },
+    'a key id no other check reads is FIELDS’ own requirement',
+  );
+  const parent = byName.get('log-first-parent-nonnull');
+  assert.equal(parent.expected.fail['L2.CHAIN.FIRST_PARENT_NULL'], 'MISMATCH');
+  assert.equal(parent.expected.fail['L2.CHAIN.LINKS'], undefined, 'the first entry’s parent is not LINKS’ value');
+  assert.deepEqual(parent.asked.pass, ['L2.CHAIN.LINKS'], 'and the case asks for that, rather than assuming it');
 });
 
 test('every recorded probe answer is the answer the format gives', async () => {
@@ -80,6 +119,13 @@ test('every recorded probe answer is the answer the format gives', async () => {
     assert.equal(entry.asked.verdict, entry.expected.verdict, `${entry.name}: the record asks for one verdict and states another`);
     for (const [id, code] of Object.entries(entry.asked.fail ?? {})) {
       assert.equal(entry.expected.fail[id], code, `${entry.name}: the record asks for ${id}=${code} and does not carry it`);
+    }
+    for (const [id, code] of Object.entries(entry.asked.unsupported ?? {})) {
+      assert.equal(entry.expected.unsupported[id], code, `${entry.name}: the record asks for ${id}=${code} and does not carry it`);
+    }
+    for (const id of entry.asked.pass ?? []) {
+      assert.equal(entry.expected.fail[id], undefined, `${entry.name}: the record asks for ${id} to pass and it fails`);
+      assert.equal(entry.expected.unsupported[id], undefined, `${entry.name}: the record asks for ${id} to pass and it is unsupported`);
     }
   }
 });

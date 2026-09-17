@@ -140,6 +140,23 @@ def skips(data: bytes) -> int:
     return sum(1 for result in verify(data).results if result.status == "SKIP")
 
 
+def unsupported(data: bytes) -> dict:
+    """The checks that found something this verifier does not implement, by id.
+
+    `fails()` lumps these in with the failures because a case that asks "what is
+    wrong with this file" wants both; a case that asks which of the two *kinds*
+    of answer came back — an artifact that is broken against one that is
+    unproven — needs them apart, and section 3.2 is the place that says which.
+    """
+    from charter_verify import verify
+
+    return {
+        result.id: result.reason_code
+        for result in verify(data).results
+        if result.status == "UNSUPPORTED"
+    }
+
+
 # --- builders for cases no committed fixture covers -----------------------
 
 

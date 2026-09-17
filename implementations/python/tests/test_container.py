@@ -12,7 +12,16 @@ import unittest
 import zlib
 
 from charter_verify import container, verify
-from charter_verify.vocabulary import DECODE_ERROR, EXTRA, MALFORMED, MISSING, VERIFIED
+from charter_verify.vocabulary import (
+    DECODE_ERROR,
+    EXTRA,
+    MALFORMED,
+    MISMATCH,
+    MISSING,
+    UNSUPPORTED_FEATURE,
+    UNSUPPORTED_VERSION,
+    VERIFIED,
+)
 
 from .support import (
     check,
@@ -22,9 +31,20 @@ from .support import (
     manifest_with_digest,
     artifact,
     skips,
+    unsupported,
     CONTENT,
     PROVENANCE,
 )
+
+
+def u16(data: bytes, at: int) -> int:
+    """A little-endian 16-bit field, as the ZIP format states it."""
+    return int.from_bytes(data[at : at + 2], "little")
+
+
+def u32(data: bytes, at: int) -> int:
+    """A little-endian 32-bit field, as the ZIP format states it."""
+    return int.from_bytes(data[at : at + 4], "little")
 
 
 class EntriesTest(unittest.TestCase):
@@ -136,12 +156,64 @@ class LayoutTest(unittest.TestCase):
         self.assertEqual(fails(commented)["L0.ZIP.LAYOUT"], EXTRA)
         self.assertEqual(len(walk.entries), 3)
 
-    def test_a_local_header_that_disagrees_with_the_directory_is_malformed(self) -> None:
-        """The name in the local header is the name in the central directory."""
+    def test_a_local_header_that_disagrees_with_the_directory_is_a_mismatch(self) -> None:
+        """The name in the local header is the name in the central directory.
+
+        Both headers are well formed and they name the same bytes; what is wrong
+        is that the two copies of one claim disagree, which is MISMATCH. This was
+        MALFORMED until `vectors/container/` settled it: the corpus's
+        `central-offset-to-other-header` case points a record at another entry's
+        header, and the two implementations answered differently — see
+        `implementations/python/README.md` and SPEC.md section 3.1.
+        """
         data = bytearray(fixture_bytes("valid"))
         at = data.find(b"manifest.json", 30)
         data[at] = ord("M")
-        self.assertEqual(fails(bytes(data)), {"L0.ZIP.READABLE": MALFORMED})
+        self.assertEqual(fails(bytes(data)), {"L0.ZIP.READABLE": MISMATCH})
+
+    def test_a_flag_word_the_two_headers_disagree_about_is_a_mismatch(self) -> None:
+        """The reader has to agree with itself about flags before it reads anything.
+
+        SPEC section 3.6 says so in as many words, and it is the corpus's
+        `local-flag-allowed-bit-set` case: bit 0x0002 is one the format allows, so
+        no check about *what the bit says* can refuse it — the disagreement is the
+        whole defect, and it is a refusal rather than a reported failure.
+        """
+        data = bytearray(fixture_bytes("valid"))
+        at = data.find(b"PK\x03\x04")
+        self.assertEqual(u16(data, at + 6), 0x0800, "the fixture's flag word moved")
+        data[at + 6 : at + 8] = (0x0802).to_bytes(2, "little")
+        self.assertEqual(fails(bytes(data)), {"L0.ZIP.READABLE": MISMATCH})
+
+    def test_a_zip64_end_record_and_a_second_disk_are_unproven_not_broken(self) -> None:
+        """SPEC section 3.2: the reader does not guess at another reader's bytes."""
+        data = bytearray(fixture_bytes("valid"))
+        record = data.rfind(b"PK\x05\x06")
+        for offset, value in ((record + 8, 0xFFFF), (record + 10, 0xFFFF)):
+            data[offset : offset + 2] = value.to_bytes(2, "little")
+        self.assertEqual(
+            unsupported(bytes(data)), {"L0.ZIP.READABLE": UNSUPPORTED_VERSION}
+        )
+        self.assertEqual(verify(bytes(data)).verdict, "INCOMPLETE")
+        separately = bytearray(fixture_bytes("valid"))
+        record = separately.rfind(b"PK\x05\x06")
+        separately[record + 4 : record + 6] = (1).to_bytes(2, "little")
+        self.assertEqual(
+            unsupported(bytes(separately)), {"L0.ZIP.READABLE": UNSUPPORTED_FEATURE}
+        )
+
+    def test_the_declared_extent_of_the_directory_is_read_too(self) -> None:
+        """A byte the reader never looks at is a byte a forged file can change.
+
+        The corpus's `eocd-cd-size-wrong` case: every record and offset is intact
+        and the end record understates the directory by two bytes. Nothing else in
+        the file notices, so `L0.ZIP.LAYOUT` is the check that has to.
+        """
+        data = bytearray(fixture_bytes("valid"))
+        record = data.rfind(b"PK\x05\x06")
+        declared = u32(data, record + 12)
+        data[record + 12 : record + 16] = (declared - 2).to_bytes(4, "little")
+        self.assertEqual(fails(bytes(data)), {"L0.ZIP.LAYOUT": MISMATCH})
 
 
 class LineEndingTest(unittest.TestCase):

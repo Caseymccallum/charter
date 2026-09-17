@@ -104,10 +104,12 @@ every check it cannot perform, which is a verdict of `INCOMPLETE`, never a pass.
 
 ```
 node vectors/run.js     # replay 54 artifacts against 54 recorded answers
-npm run probe           # 20 more artifacts, asked of two implementations
-npm test                # the 126 tests, through node --test
+npm run probe           # 26 more artifacts, asked of two implementations
+npm run corpus          # 34 mutated containers, asked of two implementations
+npm run sweep           # every field of both documents, rewritten eleven ways each
+npm test                # the 148 tests, through node --test
 npm run kit:python      # the same 54 answers, through a second implementation
-npm run test:python     # 92 Python tests, including that replay
+npm run test:python     # 113 Python tests, including that replay
 ```
 
 `vectors/run.js` is written for a reader, not for the author: it reads
@@ -115,15 +117,50 @@ npm run test:python     # 92 Python tests, including that replay
 verifier for a verdict. If the bytes on disk are not the bytes the record
 describes, it says so instead of quietly agreeing.
 
-`vectors/probe/` is the same idea for the cases the kit does not contain: 20
+`vectors/probe/` is the same idea for the cases the kit does not contain: 26
 artifacts built by hand — a leading-zero integer, four spellings of an escape, an
 uppercase digest, a key of 31 bytes, a base64url tail whose unused bits are not
-zero, a log line that is not an object, a CRLF line — asked of the reference and
-of the Python implementation at once. It is the harness that found the findings
-below (and, once committed, two more: see
+zero, a log line that is not an object, a CRLF line, an empty digest, an empty
+signature, a parent in uppercase, an empty `format`, an empty `key_id`, a first
+entry whose parent is a digest where `null` is required — asked of the reference
+and of the Python implementation at once. It is the harness that found the
+findings below (and, once committed, two more: see
 [`vectors/probe/README.md`](vectors/probe/README.md)), and `npm run probe`
 re-runs it. It needs Node; the Python leg is skipped, with a sentence saying so,
-on a machine that has no interpreter.
+on a machine that has no interpreter. Its builder now refuses to record an answer
+the two implementations do not agree about, so a case that is a divergence cannot
+be filed as a settled answer.
+
+`vectors/container/` is the probe's question asked one level down, where neither
+the kit nor the probe can reach: **34 hand-mutated containers**, each one change
+to `vectors/out/valid.charter` — an entry renamed, the three entries reordered,
+one header's declared size off by one, a flag bit set in one copy of a header and
+not the other, a directory record pointed at the wrong local header, a count off
+by one, sixteen bytes appended, a ZIP64 marker, disk 1 of a set, a declared extra
+field one byte too long, a name length the name does not have, a name byte that is
+not UTF-8, a byte removed from the middle of the directory, a feature level above
+2.0 in one copy only, a record whose declared extent reaches past the file — with
+both implementations' answers recorded for each. It is a finding tool rather than
+a kit: the replay fails when an implementation has *moved*, and reports a case the
+two still read differently as a finding rather than as a failure. On its first run
+eleven of its 26 cases disagreed — ten of them the port's, one the reference's —
+and eight cases built after that found six more differences, five of them the
+port's and one where both implementations had answered the same wrong thing. One of
+the port's findings is worth naming here: a container whose two headers disagreed
+about an allowed flag bit, which the port had called `VERIFIED`. Every one was
+settled by reading the ZIP specification and SPEC.md §3, amending §3, and then
+fixing the implementation that was wrong; §10.3 counts what the corpus settled, and
+[`vectors/container/README.md`](vectors/container/README.md) lists the findings —
+including the one case that records a hole rather than a difference, an extra
+field that both implementations accept while nothing reads its bytes.
+
+`implementations/python/tools/sweep.py` is the same question asked
+systematically: every field of both documents, rewritten eleven ways each, with
+both implementations asked about all 212 of them. It is a finding tool rather than
+a fixture — it builds nothing that is committed — and its first run is what
+settled the rule at the head of SPEC.md §10 ("a requirement has exactly one
+owner"): the two implementations disagreed about 40 of the 212, and every one was
+a check measuring a string that the check reading the value owns.
 
 `implementations/python/` is a second reading of the same spec, in Python, by a
 reader who did not read `verifier/**` — no shared code and no shared crypto
@@ -228,24 +265,28 @@ can decide from the artifact alone, and they are printed rather than guessed at.
 | `verifier/` | the pure verifier: bytes in, verdict out. No clock, no disk, no network, no `node:` imports. It also holds the two writers a page may import — the canonical ZIP writer and the base64url encoder — which no module the reading path reaches can see |
 | `producer/` | the reference implementation: writes the format, reads a file's claims, cites one. No clock, no disk, one `node:` import (`node:crypto`, for keys) |
 | `editor/` | a demonstration, not a product: one static page that shows a file's claim and seals one, importing `verifier/**` and nothing else. `editor/serve.mjs` hands it to a browser |
+| `docs/first-user.md` | the protocol for the format's first user session: what the person is given, the three moments to record verbatim, the one question to ask, and the rule that a session the person cannot finish is the finding. The session has not been run, and the document says so rather than describing one |
 | `cli/charter.js` | the only file in the project that reads or writes a file, and the only place a verdict or a refusal becomes text |
 | `vectors/` | the conformance kit: an independent builder, 54 artifacts, the recorded answers, and the replay |
-| `vectors/probe/` | the differential probe: 20 more artifacts, the answers the reference gives for them, and the replay that asks both implementations |
-| `implementations/python/` | a second reading of the spec: a Python verifier with no shared code, no shared crypto and its own replay of the same 54 answers, plus what the exercise found |
-| `test/` | 124 tests, including `purity.test.js` (the verifier stays pure, the serializer shares no code with the parser, and no writer is reachable from a verdict), `parser.fuzz.test.js` (no input throws), `canonical.roundtrip.test.js` (every committed artifact is a fixed point of the reader and the serializer, both directions), `adversarial.test.js` (the table in `adversarial.md` is a claim the tests check), `producer.test.js` (seal, then verify, then every way a sealed file can be made to lie), `probe.test.js` (the probe's record, replayed), and `editor.test.js` (the page's import graph, and the page itself in a headless browser). `test/corpus.js` is not a test file: it is the hostile-text corpus both fuzz suites are stated over, so `node --test` lists it and finds nothing in it. |
+| `vectors/probe/` | the differential probe: 26 more artifacts, the answers the reference gives for them, and the replay that asks both implementations |
+| `vectors/container/` | the same idea one level down: 34 hand-mutated containers — the whole file, not just the JSON — with both implementations' answers recorded for each, and a replay that fails when an implementation moves |
+| `implementations/python/` | a second reading of the spec: a Python verifier with no shared code, no shared crypto and its own replay of the same 54 answers, plus what the exercise found. `tools/sweep.py`, `tools/probe.py` and `tools/corpus.py` are its authoring tools: the sweep asks both implementations about every field of both documents, rewritten eleven ways each; the other two write the probe's and the corpus's records |
+| `test/` | 148 tests, including `purity.test.js` (the verifier stays pure, the serializer shares no code with the parser, and no writer is reachable from a verdict), `schema.test.js` (a field whose string another check reads is not measured by the reader, and the kinds the readers use are the kinds the schema declares), `parser.fuzz.test.js` (no input throws), `canonical.roundtrip.test.js` (every committed artifact is a fixed point of the reader and the serializer, both directions), `adversarial.test.js` (the table in `adversarial.md` is a claim the tests check), `producer.test.js` (seal, then verify, then every way a sealed file can be made to lie), `probe.test.js` (the probe's record, replayed), `spec.test.js` (every row of §10.2 says what settles it, and each of those names is a case that exists), `corpus.test.js` (the corpus's record, replayed, and that no case is left as a divergence), and `editor.test.js` (the page's import graph, and the page itself in a headless browser). `test/corpus.js` is not a test file: it is the hostile-text corpus both fuzz suites are stated over, so `node --test` lists it and finds nothing in it. |
 | `NAMING.md` | what the words in this project mean, and which ones are avoided |
 
 ## Development
 
 ```
-npm test          # node --test: discovers test/*.test.js and runs all 124
+npm test          # node --test: discovers test/*.test.js and runs all 148
 npm run kit       # replay the conformance kit
 npm run kit:build # rebuild the kit's artifacts (the author's program)
-npm run probe     # ask the reference and the Python port about 20 hand-built artifacts
+npm run probe     # ask the reference and the Python port about 26 hand-built artifacts
+npm run corpus    # ask them both about 34 mutated containers
+npm run sweep     # ask them both about every field of both documents, 212 questions
 npm run seal      # the producer's verbs: seal, inspect, cite, keygen
 npm run editor    # serve the repository and open the editor
 npm run kit:python  # replay the same kit with the Python verifier
-npm run test:python # the Python port's 92 tests
+npm run test:python # the Python port's 113 tests
 ```
 
 `vectors/build.js` shares no code with `verifier/**`. It writes the canonical

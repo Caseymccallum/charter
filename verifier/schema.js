@@ -2,10 +2,17 @@
  * Field validation.
  *
  * Charter has exactly two places where a schema is read: the manifest and a
- * provenance entry. Both need the same four answers about every field — is it
- * there, is it the right kind, is it in the one canonical encoding of its
- * value, and is it a field this version has a rule for — so those four answers
+ * provenance entry. Both need the same answers about every field — is it there,
+ * is it the JSON kind this version states, is it one of the values this version
+ * defines, and is it a field this version has a rule for — so those four answers
  * live here once and the two readers describe themselves as data.
+ *
+ * What a reader does **not** answer here is whether a string is the one spelling
+ * this format fixes for the value it carries. A digest, a public key, a signature
+ * and a parent each have a check that reads them, and the check that reads a
+ * value owns its spelling: an uppercase digest is a second spelling rather than a
+ * malformed field, and a reader that measured it here would take the complaint
+ * away from the check that can name it (SPEC.md sections 5, 7 and 10).
  *
  * Every validator returns the converted value rather than a boolean. A reader
  * then works only from converted values, which is what stops a check and a
@@ -70,11 +77,19 @@ export function isIsoUtcSecond(text) {
 
 /**
  * @typedef {Object} FieldSpec
- * @property {string} kind one of: null, boolean, array, object, integer, string, enum, hex, hex_or_null, base64url, timestamp
+ * @property {string} kind one of: null, boolean, array, object, integer, string, string_or_null, enum, hex, base64url, timestamp
  * @property {string[]} [values] the permitted strings of an enum field
  * @property {number} [hex_length] exact byte length of a hex field
  * @property {number} [byte_length] exact decoded byte length of a base64url field
  * @property {boolean} [non_empty] a string field that may not be ""
+ *
+ * A kind states the JSON value a field holds, and nothing about the string in
+ * it: `string` is a string, empty or not, spelled any way at all. `non_empty` is
+ * the one addition, and only a field that no other check reads may carry it —
+ * the fields whose shape in section 5's table *is* the whole requirement. A
+ * field whose value a check reads is measured by that check, so `signature` and
+ * `content.sha256` carry the plain kind and `L1.MANIFEST.SIGNATURE` and
+ * `L0.CONTENT.HASH` report what is wrong with the string they were handed.
  */
 
 /**
@@ -92,8 +107,11 @@ export function readField(object, key, spec, where) {
     return { ok: false, reason_code: REASON.MISSING, detail: `${label} is absent` };
   }
   const value = object[key];
-  if (spec.kind === 'hex_or_null' && value === null) {
-    return { ok: true, value: null };
+  if (spec.kind === 'string_or_null') {
+    if (value !== null && typeof value !== 'string') {
+      return { ok: false, reason_code: REASON.MALFORMED, detail: `${label} is ${describeType(value)}, and this field is a string or null` };
+    }
+    return { ok: true, value };
   }
   if (spec.kind === 'null' && value !== null) {
     return { ok: false, reason_code: REASON.MALFORMED, detail: `${label} is ${describeType(value)}, not null` };
@@ -132,7 +150,7 @@ export function readField(object, key, spec, where) {
     }
     return { ok: true, value };
   }
-  if (spec.kind === 'hex' || spec.kind === 'hex_or_null') {
+  if (spec.kind === 'hex') {
     const expected = `${spec.hex_length * 2} lowercase hex characters`;
     if (value.length !== spec.hex_length * 2) {
       return { ok: false, reason_code: REASON.NON_CANONICAL_ENCODING, detail: `${label} is ${value.length} characters long, not ${expected}` };

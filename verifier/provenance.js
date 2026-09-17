@@ -1,6 +1,13 @@
 /**
  * The provenance log: the edit history, one signed entry per line.
  *
+ * Field kinds are checked here; encodings that have a check of their own are left
+ * to that check. `content_sha256` is a string here and a digest in
+ * L0.PROVENANCE.CONTENT_HASH_FORMAT; `signature` is a string here and a signature
+ * in L1.PROVENANCE.SIGNATURES; and `parent` is a string or null here and a digest
+ * — or the start of the chain — in `L2.CHAIN.LINKS` and
+ * `L2.CHAIN.FIRST_PARENT_NULL`.
+ *
  * The file is byte-oriented rather than line-oriented on purpose. A verifier
  * that reads lines through a text decoder has already lost the ability to
  * notice CRLF, a missing final newline, or a byte order mark, and those are
@@ -14,7 +21,6 @@ import { splitOnByte, utf8Decode } from './bytes.js';
 import { signingInput } from './canonical-write.js';
 import { parseJsonText } from './canonical.js';
 import { LIMITS } from './limits.js';
-import { DIGEST_BYTES } from './manifest.js';
 import { describeType, findUnknownField, readField } from './schema.js';
 import { REASON } from './status.js';
 
@@ -94,10 +100,13 @@ function prefixUnknown(key, where) {
 /**
  * Read and check one entry.
  *
- * As with the manifest, encodings that a dedicated check consumes are not
- * checked here: `signature` is a string and `content_sha256` is a string,
- * because L1.PROVENANCE.SIGNATURES and L0.PROVENANCE.CONTENT_HASH_FORMAT are
- * the checks that read them.
+ * As in the manifest, encodings that a dedicated check consumes are not checked
+ * here: `signature` is a string and `content_sha256` is a string, because
+ * L1.PROVENANCE.SIGNATURES and L0.PROVENANCE.CONTENT_HASH_FORMAT are the checks
+ * that read them, and `parent` is a string or null because L2.CHAIN.LINKS is the
+ * check that reads 63 of them as digests. Emptiness is not measured here either:
+ * an empty signature is not unpadded base64url decoding to 64 bytes, and that is
+ * a sentence L1.PROVENANCE.SIGNATURES is the check to write.
  *
  * @param {Record<string, unknown>} object
  * @param {number} number 1-based line number
@@ -113,11 +122,11 @@ export function readEntry(object, number) {
   if (!action.ok) return { ok: false, path: `${where}.action`, reason_code: action.reason_code, detail: action.detail };
   const summary = readField(object, 'summary', { kind: 'string', non_empty: true }, where);
   if (!summary.ok) return { ok: false, path: `${where}.summary`, reason_code: summary.reason_code, detail: summary.detail };
-  const parent = readField(object, 'parent', { kind: 'hex_or_null', hex_length: DIGEST_BYTES }, where);
+  const parent = readField(object, 'parent', { kind: 'string_or_null' }, where);
   if (!parent.ok) return { ok: false, path: `${where}.parent`, reason_code: parent.reason_code, detail: parent.detail };
-  const contentSha256 = readField(object, 'content_sha256', { kind: 'string', non_empty: true }, where);
+  const contentSha256 = readField(object, 'content_sha256', { kind: 'string' }, where);
   if (!contentSha256.ok) return { ok: false, path: `${where}.content_sha256`, reason_code: contentSha256.reason_code, detail: contentSha256.detail };
-  const signature = readField(object, 'signature', { kind: 'string', non_empty: true }, where);
+  const signature = readField(object, 'signature', { kind: 'string' }, where);
   if (!signature.ok) return { ok: false, path: `${where}.signature`, reason_code: signature.reason_code, detail: signature.detail };
 
   const author = readField(object, 'author', { kind: 'object' }, where);

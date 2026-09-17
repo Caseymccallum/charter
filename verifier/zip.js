@@ -248,7 +248,14 @@ function locateEntryData(bytes, entries) {
  */
 function evaluateLayout(bytes, entries, end) {
   let expected = 0;
-  for (const entry of entries) {
+  // The entries are walked in *file* order, which is not necessarily the order
+  // the central directory lists them in. ZIP fixes no order for the directory,
+  // and a writer that sorts its records by name produces a file whose entries
+  // and whose directory ordering disagree while every byte is still exactly
+  // where the format puts it. What the layout rule states is a property of the
+  // byte ranges, so the ranges are what this walks.
+  const inFileOrder = [...entries].sort((left, right) => left.localOffset - right.localOffset);
+  for (const entry of inFileOrder) {
     if (entry.localOffset < expected) {
       return { ok: false, reason_code: REASON.MISMATCH, detail: `entry "${entry.name}" begins at offset ${entry.localOffset}, inside the range already used by the previous entry (which ends at ${expected})` };
     }
@@ -260,8 +267,11 @@ function evaluateLayout(bytes, entries, end) {
   if (end.cursor !== end.cdOffset + end.cdSize) {
     return { ok: false, reason_code: REASON.MISMATCH, detail: `the central directory declares ${end.cdSize} byte(s) but its entries use ${end.cursor - end.cdOffset}` };
   }
-  if (end.cdOffset !== expected) {
-    return { ok: false, reason_code: REASON.EXTRA, detail: `${Math.abs(end.cdOffset - expected)} byte(s) between the last entry (${expected}) and the central directory (${end.cdOffset})` };
+  if (end.cdOffset > expected) {
+    return { ok: false, reason_code: REASON.EXTRA, detail: `${end.cdOffset - expected} byte(s) between the last entry (${expected}) and the central directory (${end.cdOffset})` };
+  }
+  if (end.cdOffset < expected) {
+    return { ok: false, reason_code: REASON.MISMATCH, detail: `the ranges end at ${expected} and the central directory declares that it begins at ${end.cdOffset}, so the last ${expected - end.cdOffset} byte(s) of an entry's data and the directory are two claims about the same bytes` };
   }
   if (end.at !== end.cdOffset + end.cdSize) {
     return { ok: false, reason_code: REASON.EXTRA, detail: `the end record sits at ${end.at} but the central directory ends at ${end.cdOffset + end.cdSize}` };

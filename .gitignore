@@ -10,5 +10,7 @@ Thumbs.db
 __pycache__/
 *.pyc
 
-# vectors/out/ is committed on purpose: the artifacts are the kit. A record of
-# files nobody has is not a record, so these are not ignored.
+# vectors/out/, vectors/probe/out/ and vectors/container/out/ are committed on
+# purpose: the artifacts are the kit, the probe and the corpus, and each of the
+# three records its answers against a digest of the bytes. A record of files
+# nobody has is not a record, so these are not ignored.

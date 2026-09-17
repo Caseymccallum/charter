@@ -22,7 +22,14 @@ import zlib
 
 from . import limits
 from .errors import Refusal
-from .vocabulary import DECODE_ERROR, LIMIT_EXCEEDED, MALFORMED, UNSUPPORTED_FEATURE
+from .vocabulary import (
+    DECODE_ERROR,
+    LIMIT_EXCEEDED,
+    MALFORMED,
+    MISMATCH,
+    UNSUPPORTED_FEATURE,
+    UNSUPPORTED_VERSION,
+)
 
 EOCD_SIGNATURE = b"PK\x05\x06"
 CENTRAL_SIGNATURE = b"PK\x01\x02"
@@ -152,8 +159,8 @@ class Container:
         self.cd_offset = 0
         self.cd_size = 0
         self.cd_consumed = 0
-        self.layout_pairs: list[tuple[str, int, int]] = []
-        self.layout_end = 0
+        self.entry_spans: list[tuple[str, int, int]] = []
+        self.directory_end = 0
 
     def named(self, name: str) -> list[Entry]:
         """Every entry with this name, in the order the file holds them.
@@ -228,6 +235,37 @@ def walk(data: bytes) -> Container:
             "and the file does not hold that many bytes after it",
         )
 
+    # The end record's own version and disk facts, decided here rather than by
+    # L0.ZIP.VERSION: an archive that says it is one disk of a set, or that its
+    # real counts are in a ZIP64 record this format does not implement, is an
+    # archive whose offsets are not (or may not be) this file's, so there is
+    # nothing here to walk rather than something here that is wrong. SPEC
+    # sections 3.1 and 3.2.
+    if container.disk_number != 0 or container.cd_disk != 0:
+        raise Refusal(
+            UNSUPPORTED_FEATURE,
+            f"the end record declares disk {container.disk_number} of a set (the central "
+            "directory starts on disk "
+            f"{container.cd_disk}), and this verifier reads one file",
+        )
+    if (
+        container.entries_this_disk == 0xFFFF
+        or container.entries_total == 0xFFFF
+        or container.cd_size == 0xFFFFFFFF
+        or container.cd_offset == 0xFFFFFFFF
+    ):
+        raise Refusal(
+            UNSUPPORTED_VERSION,
+            "the end record carries a ZIP64 field, so the real counts live in a record "
+            "this format does not implement",
+        )
+    if container.entries_this_disk != container.entries_total:
+        raise Refusal(
+            MALFORMED,
+            f"the end record declares {container.entries_total} entr(ies) and "
+            f"{container.entries_this_disk} on this disk",
+        )
+
     # The central directory lies inside the file.
     if (
         container.cd_offset > len(data)
@@ -241,21 +279,38 @@ def walk(data: bytes) -> Container:
 
     # It declares exactly as many entries as it contains, and each record
     # points at a local header whose name is byte-for-byte the record's name.
-    at = container.cd_offset
-    for _ in range(container.entries_total):
-        if at + CENTRAL_BYTES > len(data) or data[at : at + 4] != CENTRAL_SIGNATURE:
+    #
+    # The directory is walked to its declared end before any record's name is
+    # compared with the local header it points at, which is the order SPEC
+    # section 3.1 fixes and not an accident of this loop. One byte removed from
+    # the middle of the directory moves every later record while every number the
+    # file states about the directory still says what it said, so a reader that
+    # compared each name as it walked would report a disagreement about a record
+    # whose position the file no longer states and would never say the plainer
+    # thing: that the directory does not hold the records it declares. Everything
+    # in this pass is shape, and shape is MALFORMED's.
+    records = []
+    cursor = container.cd_offset
+    for index in range(container.entries_total):
+        if cursor + CENTRAL_BYTES > len(data) or data[cursor : cursor + 4] != CENTRAL_SIGNATURE:
             raise Refusal(
                 MALFORMED,
                 f"the central directory declares {container.entries_total} entr(ies) "
-                f"and holds no record at offset {at}",
+                f"and holds no record at offset {cursor}",
             )
-        record = _central_record(data, at)
-        name_end = at + CENTRAL_BYTES + record["name_len"]
-        if name_end + record["extra_len"] + record["comment_len"] > len(data):
+        record = _central_record(data, cursor)
+        name_end = cursor + CENTRAL_BYTES + record["name_len"]
+        # The gate reads the *name's* end and not the record's declared extent.
+        # A name that ends past the file is bytes nobody can read, which is this
+        # gate's question; a record whose extra field or comment extends past the
+        # file is a record the walk read, and the bytes it declares are what the
+        # directory's own declared size has to account for, which is
+        # L0.ZIP.LAYOUT's question and MISMATCH (SPEC sections 3.1 and 3.4).
+        if name_end > len(data):
             raise Refusal(
                 MALFORMED,
-                f"the central directory record at offset {at} runs past the end of "
-                "the file",
+                f"the name of the central directory record at offset {cursor} runs past "
+                "the end of the file",
             )
         if record["name_len"] > limits.ENTRY_NAME_BYTES:
             raise Refusal(
@@ -263,16 +318,32 @@ def walk(data: bytes) -> Container:
                 f"an entry name is {record['name_len']} bytes, and the ceiling for "
                 f"one name is {limits.ENTRY_NAME_BYTES}",
             )
+        # A name this reader cannot read is not a name it has, so the entry set
+        # cannot be established from it: the three names the format requires are
+        # ASCII, and a name that is not UTF-8 is bytes this reader will not call
+        # a name at all. SPEC sections 3.1 and 3.3.
+        try:
+            data[cursor + CENTRAL_BYTES : name_end].decode("utf-8")
+        except UnicodeDecodeError as problem:
+            raise Refusal(
+                DECODE_ERROR,
+                f"the name of central directory entry {index + 1} is not valid UTF-8 "
+                f"({problem.reason} at byte {problem.start})",
+            ) from None
+        records.append((cursor, record, name_end))
+        cursor = name_end + record["extra_len"] + record["comment_len"]
+
+    # The claims each record makes, which can only be read once the walk that
+    # found the record has finished.
+    for at, record, name_end in records:
         name = data[at + CENTRAL_BYTES : name_end]
         local, data_offset = _local_header(data, record["header_offset"], name)
-        if (
-            record["compressed_size"] > limits.ENTRY_COMPRESSED_BYTES
-            or local["compressed_size"] > limits.ENTRY_COMPRESSED_BYTES
-        ):
+        if local["flags"] != record["flags"]:
             raise Refusal(
-                LIMIT_EXCEEDED,
-                f"{name!r} declares {record['compressed_size']} compressed byte(s), "
-                f"and the ceiling for one entry is {limits.ENTRY_COMPRESSED_BYTES}",
+                MISMATCH,
+                f"{name!r} declares general purpose flags 0x{record['flags']:04x} in the "
+                f"central directory and 0x{local['flags']:04x} in its local header, and a "
+                "reader has to agree with itself about flags before it decodes anything",
             )
         end = data_offset + record["compressed_size"]
         if end > len(data):
@@ -291,9 +362,8 @@ def walk(data: bytes) -> Container:
                 data=data[data_offset:end],
             )
         )
-        at = name_end + record["extra_len"] + record["comment_len"]
-    container.cd_consumed = at - container.cd_offset
-    _record_layout(container, at)
+    container.cd_consumed = cursor - container.cd_offset
+    _record_layout(container, cursor)
     return container
 
 
@@ -320,7 +390,18 @@ def _central_record(data: bytes, at: int) -> dict:
 
 
 def _local_header(data: bytes, at: int, name: bytes) -> tuple[dict, int]:
-    """The local header this record points at, and where its data starts."""
+    """The local header this record points at, and where its data starts.
+
+    Two rules about it are refusals rather than checks, and both are here for the
+    same reason: the reader has to agree with itself about them before it can
+    read anything. The name has to be the record's name byte for byte (SPEC
+    section 3.1), and the flag word has to be the record's flag word, because a
+    reader that took one copy's flags and another copy's bytes would be reading a
+    file neither header describes (section 3.6, which the caller applies since
+    only it holds both copies). Both are MISMATCH — two claims about one thing
+    that disagree — and not MALFORMED, which is for bytes that are not the shape
+    the format requires.
+    """
     if at + LOCAL_BYTES > len(data) or data[at : at + 4] != LOCAL_SIGNATURE:
         raise Refusal(
             MALFORMED,
@@ -338,14 +419,15 @@ def _local_header(data: bytes, at: int, name: bytes) -> tuple[dict, int]:
     local_name = data[at + LOCAL_BYTES : at + LOCAL_BYTES + name_len]
     if local_name != name:
         raise Refusal(
-            MALFORMED,
+            MISMATCH,
             f"the central directory names {name!r} and the local header it points at "
             f"names {local_name!r}",
         )
+    local_flags = _u16(data, at + 6)
     return (
         {
             "version_needed": _u16(data, at + 4),
-            "flags": _u16(data, at + 6),
+            "flags": local_flags,
             "method": _u16(data, at + 8),
             "dos_time": _u16(data, at + 10),
             "dos_date": _u16(data, at + 12),
@@ -360,37 +442,26 @@ def _local_header(data: bytes, at: int, name: bytes) -> tuple[dict, int]:
 
 
 def _record_layout(container: Container, cd_end: int) -> None:
-    """Account for every byte, in the order SPEC section 3.4 fixes.
+    """The byte ranges LAYOUT walks, in the order the file holds them. SPEC 3.4.
 
-    The pairs are (what, from, to) spans over the file, recorded rather than
-    judged: LAYOUT compares the union of them against the whole file and
-    reports EXTRA for anything left over. A reader that only walked the central
-    directory would leave the gap between the last entry and the directory
-    unaccounted, and that gap is where a second copy of a document fits.
+    A local header and the data it declares are one range, because the data begins
+    where that header says it does. The ranges are what `L0.ZIP.LAYOUT` compares
+    against each other and against the whole file: the union of them has to be the
+    file, in order, with nothing before the first, between two of them, or after
+    the end record. The order the *directory* lists the entries in is not part of
+    that question — ZIP fixes no such order, and a writer that sorts its records
+    would otherwise be refused for a layout that is exactly right — which is why
+    the ranges are sorted by offset here and the walk is over the ranges.
     """
-    spans: list[tuple[str, int, int]] = []
-    by_offset = sorted(container.entries, key=lambda entry: entry.header_offset)
-    for entry in by_offset:
-        header_end = entry.data_offset
-        spans.append((f"the local header of {entry.name_text}", entry.header_offset, header_end))
-        if entry.data:
-            spans.append(
-                (f"the data of {entry.name_text}", header_end, header_end + len(entry.data))
-            )
-    spans.append(("the central directory", container.cd_offset, cd_end))
-    spans.append(
-        ("the end record", container.eocd_offset, container.eocd_offset + EOCD_BYTES)
-    )
-    if container.eocd_comment_len:
-        spans.append(
-            (
-                "an archive comment",
-                container.eocd_offset + EOCD_BYTES,
-                container.eocd_offset + EOCD_BYTES + container.eocd_comment_len,
-            )
+    container.entry_spans = [
+        (
+            entry.name_text,
+            entry.header_offset,
+            entry.data_offset + len(entry.data),
         )
-    container.layout_pairs = spans
-    container.layout_end = cd_end
+        for entry in sorted(container.entries, key=lambda entry: entry.header_offset)
+    ]
+    container.directory_end = cd_end
 
 
 def decompress(entry: Entry) -> bytes:
@@ -402,7 +473,26 @@ def decompress(entry: Entry) -> bytes:
     UNSUPPORTED_FEATURE by the caller, not here: an entry this verifier cannot
     expand is an entry it cannot judge, and that is a statement about the
     verifier rather than about the file.
+
+    The two ceilings are compared here, before the work they bound, which is what
+    SPEC section 3.7 asks for: an entry's declared size is compared before it is
+    inflated, and the check that would read the bytes is the one that reports
+    LIMIT_EXCEEDED. The container's own walk deliberately does not apply them, so
+    that a declared size larger than the bytes in the file stays the legibility
+    gate's problem (the bytes are not there) rather than the ceiling's.
     """
+    if entry.compressed_size > limits.ENTRY_COMPRESSED_BYTES:
+        raise Refusal(
+            LIMIT_EXCEEDED,
+            f"{entry.name_text} declares {entry.compressed_size} compressed byte(s), "
+            f"and the ceiling for one entry is {limits.ENTRY_COMPRESSED_BYTES}",
+        )
+    if entry.size > limits.ENTRY_UNCOMPRESSED_BYTES:
+        raise Refusal(
+            LIMIT_EXCEEDED,
+            f"{entry.name_text} declares {entry.size} uncompressed byte(s), and the "
+            f"ceiling for one entry is {limits.ENTRY_UNCOMPRESSED_BYTES}",
+        )
     if entry.method == 0:
         return entry.data
     if entry.method == 8:

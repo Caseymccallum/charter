@@ -150,12 +150,16 @@ function examineManifest(reporter, state, limits) {
   state.manifestValue = value;
   reporter.pass('L0.MANIFEST.PARSE', `manifest.json is one JSON object with ${Object.keys(value).length} field(s), and it is the only parse of these bytes that this verifier accepts`);
 
-  const format = readField(value, 'format', { kind: 'string', non_empty: true }, 'manifest');
+  const format = readField(value, 'format', { kind: 'string' }, 'manifest');
   if (!format.ok) {
     reporter.fail('L0.FORMAT.IDENTIFIER', format.reason_code, format.detail);
-    return { detail: "manifest.format is not a version string, so no version's rules could be applied", reason_code: REASON.PREREQUISITE_FAILED };
+    return { detail: "manifest.format is not a string, so no version's rules could be applied", reason_code: REASON.PREREQUISITE_FAILED };
   }
   if (format.value !== FORMAT) {
+    // A `format` that is a string and is not the identifier this verifier
+    // implements is a version it does not implement, not a malformed field: the
+    // empty string included, because it is a string and this format's name is
+    // not "" (SPEC.md section 5).
     reporter.unsupported('L0.FORMAT.IDENTIFIER', REASON.UNSUPPORTED_VERSION, `manifest.format is "${format.value}", and this verifier implements only "${FORMAT}"`);
     return { detail: 'the artifact declares a format version this verifier does not implement, so its rules were not applied', reason_code: REASON.UNSUPPORTED_VERSION };
   }
@@ -834,7 +838,7 @@ async function examineChain(reporter, state) {
   } else if (first.parent === null) {
     reporter.pass('L2.CHAIN.FIRST_PARENT_NULL', 'the first entry declares no parent, so the chain starts here');
   } else {
-    reporter.fail('L2.CHAIN.FIRST_PARENT_NULL', REASON.MISMATCH, `the first entry declares parent ${toHex(first.parent)}, and a chain that starts here must start from nothing`);
+    reporter.fail('L2.CHAIN.FIRST_PARENT_NULL', REASON.MISMATCH, `the first entry declares parent "${first.parent}", and a chain that starts here must start from nothing`);
   }
 
   await reportLinks(reporter, state, entries);
@@ -853,20 +857,28 @@ async function reportLinks(reporter, state, entries) {
     return;
   }
   for (let index = 1; index < entries.length; index += 1) {
-    const previous = state.lines[index - 1];
-    // readEntry has already decoded `parent` to its 32 bytes, or null.
-    const declared = entries[index].parent;
-    if (declared === null) {
+    const declaredText = entries[index].parent;
+    if (declaredText === null) {
       reporter.fail('L2.CHAIN.LINKS', REASON.MISMATCH, `entry ${index + 1} declares no parent, and only the first entry of a chain may`);
       return;
     }
+    // This check reads the parent, so the parent's spelling is this check's to
+    // report: readEntry hands over the string the entry carries, and a string
+    // that is not 64 lowercase hex characters is NON_CANONICAL_ENCODING rather
+    // than a link that does not match (SPEC.md sections 5 and 7).
+    const declared = readField({ parent: declaredText }, 'parent', { kind: 'hex', hex_length: DIGEST_HEX / 2 }, `entry ${index + 1}`);
+    if (!declared.ok) {
+      reporter.fail('L2.CHAIN.LINKS', declared.reason_code, `${declared.detail} (${declared.reason_code})`);
+      return;
+    }
+    const previous = state.lines[index - 1];
     const expected = await sha256(concat([previous, LF]));
     if (expected === null) {
       reporter.unsupported('L2.CHAIN.LINKS', REASON.UNSUPPORTED_FEATURE, 'this runtime cannot compute SHA-256, so the hashes that link entries to each other could not be computed');
       return;
     }
-    if (!bytesEqual(declared, expected)) {
-      reporter.fail('L2.CHAIN.LINKS', REASON.MISMATCH, `entry ${index + 1} declares parent ${toHex(declared)}, and the SHA-256 of line ${index} as it stands in the file (${previous.length} bytes plus one LF) is ${toHex(expected)}, so nothing in this file ties those two entries together`);
+    if (!bytesEqual(declared.value, expected)) {
+      reporter.fail('L2.CHAIN.LINKS', REASON.MISMATCH, `entry ${index + 1} declares parent ${declaredText}, and the SHA-256 of line ${index} as it stands in the file (${previous.length} bytes plus one LF) is ${toHex(expected)}, so nothing in this file ties those two entries together`);
       return;
     }
   }

@@ -138,8 +138,21 @@ class Context:
             try:
                 return container.walk(self.data)
             except Refusal as refusal:
+                # The walk refuses in three voices. The bytes are not a container
+                # this verifier can read (MALFORMED), they are a container whose
+                # size exceeds a declared ceiling (LIMIT_EXCEEDED, a FAIL by
+                # section 3.7), or they are a container that uses something this
+                # verifier does not implement (an archive that says it is disk 1 of
+                # a set, or that its real counts are in a ZIP64 record). The third
+                # is UNSUPPORTED and not a failure: the artifact is not broken, it
+                # is one whose bytes this reader will not guess at.
+                status = (
+                    UNSUPPORTED
+                    if refusal.reason in (UNSUPPORTED_VERSION, UNSUPPORTED_FEATURE)
+                    else FAIL
+                )
                 raise Blocked(
-                    Blocker(READABLE, FAIL, refusal.reason, refusal.detail)
+                    Blocker(READABLE, status, refusal.reason, refusal.detail)
                 ) from None
 
         return self._ask("container", produce)
@@ -484,36 +497,35 @@ def check_readable(ctx: Context) -> Outcome:
 
 
 def check_version(ctx: Context) -> Outcome:
+    """No ZIP64, no multi-disk. SPEC 3.2.
+
+    The end record's own disk and ZIP64 facts are the legibility gate's: an
+    archive that says it is one disk of a set, or that its real counts are in a
+    ZIP64 record, does not describe bytes this reader can walk, so `READABLE`
+    reports it and this check is SKIP (section 10.1). What is left here is what an
+    *entry* declares it needs, read from the copy of that claim in the central
+    directory: it is the copy section 3.5 makes authoritative for every claim the
+    file states twice, and the local header's copy is left to `L0.ZIP.METADATA`,
+    which is the check that reports the copies disagreeing. Reading both copies
+    here would report a feature level the entry may not need — and would answer a
+    question the defect has not established, since two copies that disagree do not
+    say what the entry needs. A feature level above 20 is a version this verifier
+    does not implement, which is UNSUPPORTED_VERSION rather than
+    UNSUPPORTED_FEATURE. A bare 0xFFFFFFFF in a size field is not ZIP64 (the ZIP64
+    marker is the version, or the extra field beside it): it is a number above the
+    ceiling in section 3.7, and the check that would read the bytes reports
+    LIMIT_EXCEEDED.
+    """
     walk = ctx.container()
-    if (
-        walk.disk_number != 0
-        or walk.cd_disk != 0
-        or walk.entries_this_disk != walk.entries_total
-    ):
-        return unsupported(
-            UNSUPPORTED_FEATURE,
-            "the archive describes more than one disk, and this verifier reads one",
-        )
     highest = 0
     for entry in walk.entries:
-        needed = max(entry.version_needed, entry.local["version_needed"])
+        needed = entry.version_needed
         highest = max(highest, needed)
         if needed > 20:
             return unsupported(
-                UNSUPPORTED_FEATURE,
+                UNSUPPORTED_VERSION,
                 f"{entry.name_text} needs ZIP feature level {needed // 10}.{needed % 10}, "
-                "and a guess at a 64-bit size would be a guess at the bytes",
-            )
-    for entry in walk.entries:
-        if 0xFFFFFFFF in (
-            entry.compressed_size,
-            entry.size,
-            entry.header_offset,
-        ) or 0xFFFFFFFF in (entry.local["compressed_size"], entry.local["size"]):
-            return unsupported(
-                UNSUPPORTED_FEATURE,
-                f"{entry.name_text} carries a ZIP64 field, which this verifier does "
-                "not implement",
+                "and this verifier implements 2.0",
             )
     return passed(f"the highest ZIP feature level any entry needs is {highest // 10}")
 
@@ -544,27 +556,75 @@ def check_flags(ctx: Context) -> Outcome:
 
 
 def check_layout(ctx: Context) -> Outcome:
+    """Every byte accounted for, in the order SPEC 3.4 fixes.
+
+    The entries are walked in *file* order, which is not necessarily the order the
+    central directory lists them in: ZIP fixes no order for the directory, so the
+    rule is about the byte ranges and not about the table. An overlap (a range
+    that begins before the one before it ends) is two claims about one range of
+    bytes, which is MISMATCH; a gap (a range that begins later) is bytes where the
+    format does not put them, which is EXTRA. The three facts of the end record
+    are then compared against the ranges: the size the directory declares against
+    the size its records use, the offset it declares against where the ranges end,
+    and its own position against where the directory ends — a byte none of those
+    looks at is a byte a forged file can change for free.
+    """
     walk = ctx.container()
     expected = 0
-    for what, start, end in sorted(walk.layout_pairs, key=lambda span: span[1]):
-        if start != expected:
+    for name, start, end in walk.entry_spans:
+        if start < expected:
+            return failed(
+                MISMATCH,
+                f"{name} begins at offset {start}, inside the range another part of the "
+                f"file already claims (which ends at {expected})",
+            )
+        if start > expected:
             return failed(
                 EXTRA,
-                f"{what} starts at offset {start}, and the bytes before it are "
-                f"accounted for up to {expected}",
+                f"{start - expected} byte(s) sit between the end of the previous entry "
+                f"({expected}) and the start of {name} ({start}), and the format accounts "
+                "for every byte",
             )
         expected = end
-    if expected != walk.size:
+    if walk.cd_consumed != walk.cd_size:
+        return failed(
+            MISMATCH,
+            f"the end record declares a {walk.cd_size}-byte central directory and its "
+            f"records use {walk.cd_consumed}",
+        )
+    if walk.cd_offset > expected:
         return failed(
             EXTRA,
-            f"the file is {walk.size} bytes and the format accounts for {expected}, so "
-            "bytes appear where the format does not put them",
+            f"the central directory starts at offset {walk.cd_offset}, and the bytes "
+            f"before it are accounted for up to {expected}",
         )
+    if walk.cd_offset < expected:
+        return failed(
+            MISMATCH,
+            f"the entries' ranges end at offset {expected} and the central directory "
+            f"declares that it starts at {walk.cd_offset}, so the last "
+            f"{expected - walk.cd_offset} byte(s) of an entry's data and the directory "
+            "are two claims about the same bytes",
+        )
+    expected = walk.cd_offset + walk.cd_size
+    if walk.eocd_offset != expected:
+        return failed(
+            EXTRA,
+            f"the end record sits at offset {walk.eocd_offset} and the central directory "
+            f"ends at {expected}",
+        )
+    expected = walk.eocd_offset + container.EOCD_BYTES
     if walk.eocd_comment_len:
         return failed(
             EXTRA,
             f"the end record carries a {walk.eocd_comment_len}-byte archive comment, "
             "and charter/0.1 has no archive comment",
+        )
+    if expected != walk.size:
+        return failed(
+            EXTRA,
+            f"the file is {walk.size} bytes and the format accounts for {expected}, so "
+            f"{walk.size - expected} byte(s) appear where the format does not put them",
         )
     return passed(f"every one of the {walk.size} bytes is accounted for")
 
@@ -667,29 +727,66 @@ def check_entry_data(ctx: Context) -> Outcome:
 
 
 def check_sizes(ctx: Context) -> Outcome:
+    """The declared uncompressed size, and the bytes.
+
+    Only the directory's copy is read here. When the two copies of the size
+    disagree, the requirement that is broken is "both copies of a claim agree",
+    which is `L0.ZIP.METADATA`'s — reading the local copy here too would report
+    one defect twice and take the complaint away from the check that owns it.
+
+    An entry whose bytes cannot be read has no size to compare, and that is a
+    fact about *that entry* rather than about this check. The entries that can be
+    read are still measured, because a check that measured something and found a
+    defect reports the defect: hiding it behind the one entry it could not read
+    would be a verdict that reads worse than the file. A check whose requirement
+    is about every entry is SKIP only when every answer it gave was "not
+    measurable", which is SPEC section 10.1's rule about a fact that names one
+    entry.
+    """
     walk = ctx.container()
+    unreadable = None
     for entry in walk.entries:
-        data = ctx.decoded(entry)
-        if len(data) != entry.size or len(data) != entry.local["size"]:
+        try:
+            data = ctx.decoded(entry)
+        except Blocked as blocked:
+            if unreadable is None:
+                unreadable = blocked
+            continue
+        if len(data) != entry.size:
             return failed(
                 MISMATCH,
                 f"{entry.name_text} declares {entry.size} uncompressed byte(s) and "
                 f"holds {len(data)}",
             )
+    if unreadable is not None:
+        raise unreadable
     return passed("every entry declares the uncompressed size it has")
 
 
 def check_crc32(ctx: Context) -> Outcome:
+    """The declared CRC-32, and the bytes, for the same reason and the same copy.
+
+    An entry that cannot be read is skipped the way `check_sizes` skips it, and
+    for the same reason: the checks that can be answered are answered.
+    """
     walk = ctx.container()
+    unreadable = None
     for entry in walk.entries:
-        data = ctx.decoded(entry)
+        try:
+            data = ctx.decoded(entry)
+        except Blocked as blocked:
+            if unreadable is None:
+                unreadable = blocked
+            continue
         actual = zlib.crc32(data) & 0xFFFFFFFF
-        if actual != entry.crc32 or actual != entry.local["crc32"]:
+        if actual != entry.crc32:
             return failed(
                 MISMATCH,
                 f"{entry.name_text} declares CRC-32 0x{entry.crc32:08x} and holds "
                 f"0x{actual:08x}",
             )
+    if unreadable is not None:
+        raise unreadable
     return passed("every entry declares the CRC-32 of the bytes it holds")
 
 
@@ -848,11 +945,13 @@ def check_provenance_content_hash_format(ctx: Context) -> Outcome:
     """Every entry declares a digest. L0.PROVENANCE.CONTENT_HASH_FORMAT.
 
     The code follows the state of the field rather than a constant here: a field
-    that is not in the entry is MISSING, and a string that is there and is not the
-    one spelling of a digest is NON_CANONICAL_ENCODING. SPEC section 5 states the
-    rule and section 7 applies it to the log, both of which were amended after a
-    probe asked this exact question: the reference used to report a spelling
-    problem for a field that was not there.
+    that is not in the entry is MISSING, a string that is there and is not the one
+    spelling of a digest is NON_CANONICAL_ENCODING, and a value that is there and
+    is not a string at all is MALFORMED — the field is present and does not hold
+    the JSON value the table names, which is a different sentence from "this is
+    not the one spelling of a digest" (SPEC section 5's second paragraph). The
+    MISSING reading came from a probe asking this exact question: the reference
+    used to report a spelling problem for a field that was not there.
     """
     ctx.version_gate()
     values = ctx.log_values()
@@ -864,6 +963,12 @@ def check_provenance_content_hash_format(ctx: Context) -> Outcome:
                 "is not there is not a digest spelled wrongly",
             )
         digest = value["content_sha256"]
+        if not isinstance(digest, str):
+            return failed(
+                MALFORMED,
+                f"line {number} declares content_sha256 of type "
+                f"{type(digest).__name__}, and this field is a string",
+            )
         if not documents.is_digest(digest):
             return failed(
                 NON_CANONICAL_ENCODING,
@@ -1025,11 +1130,28 @@ def check_first_parent_null(ctx: Context) -> Outcome:
 def check_links(ctx: Context) -> Outcome:
     entries = ctx.log_entries()
     for index in range(1, len(entries)):
-        expected = hashlib.sha256(entries[index - 1].line + b"\n").hexdigest()
-        if entries[index].parent != expected:
+        declared = entries[index].parent
+        if declared is None:
             return failed(
                 MISMATCH,
-                f"entry {index + 1} declares parent {entries[index].parent}, and the "
+                f"entry {index + 1} declares no parent, and only the first entry of "
+                "a chain may start from nothing",
+            )
+        # This check reads the parent, so the parent's spelling is this check's to
+        # report: a string that is not 64 lowercase hex characters is
+        # NON_CANONICAL_ENCODING rather than a link that does not match, because
+        # the two are different complaints about different things (SPEC section 5).
+        if not documents.is_digest(declared):
+            return failed(
+                NON_CANONICAL_ENCODING,
+                f"entry {index + 1} declares parent {declared!r}, which is not the "
+                "one spelling of a SHA-256 digest: 64 lowercase hexadecimal characters",
+            )
+        expected = hashlib.sha256(entries[index - 1].line + b"\n").hexdigest()
+        if declared != expected:
+            return failed(
+                MISMATCH,
+                f"entry {index + 1} declares parent {declared}, and the "
                 f"line before it hashes to {expected}",
             )
     return passed(
