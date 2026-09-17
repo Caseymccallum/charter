@@ -38,15 +38,15 @@ from .vocabulary import (
 
 MAX_SAFE_INTEGER = 2**53 - 1
 
-# An integer is written `0`, or `-?[1-9][0-9]*`. A leading zero is a second
-# spelling of a value that already has one, and SPEC section 4.1 lists it among
-# the violations whose codes come from the integer family without naming which.
-# The README in this directory records the probe run against the reference and
-# the answer this implementation gives.
-LEADING_ZERO_REASON = NON_INTEGER_NUMBER
-
 _WHITESPACE = " \t\n\r"
-_NUMBER = re.compile(r"-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?")
+# The characters that can occur in a number, which is what fixes where one ends:
+# SPEC section 4 says a token runs to the first character that cannot occur in a
+# number, and that a token which is not the one spelling of an integer carries
+# NON_INTEGER_NUMBER. That is deliberately not JSON's grammar — `01` and
+# `2026-01-01` are syntax errors to `json`, and this format calls them a number
+# a reader would not have written.
+_NUMBER_CHARACTERS = frozenset("-+0123456789.eE")
+_INTEGER = re.compile(r"(?:0|-?[1-9][0-9]*)\Z")
 _HEX_DIGITS = "0123456789abcdefABCDEF"
 _SHORT_ESCAPES = {
     '"': '"',
@@ -114,7 +114,7 @@ class _Reader:
             if self.text.startswith(literal, self.at):
                 self.at += len(literal)
                 return value
-        if character == "-" or character.isdigit():
+        if character == "-" or "0" <= character <= "9":
             return self._number()
         raise _Refused(
             MALFORMED,
@@ -249,22 +249,16 @@ class _Reader:
         return int(digits, 16)
 
     def _number(self) -> int:
-        match = _NUMBER.match(self.text, self.at)
-        if match is None:
-            raise _Refused(MALFORMED, "a number is not written the way JSON writes one")
-        spelling = match.group(0)
-        following = self.text[match.end() : match.end() + 1]
-        if spelling == "-0" or following.isdigit():
-            raise _Refused(
-                LEADING_ZERO_REASON,
-                f"{spelling}{following if following.isdigit() else ''} is not the "
-                "one spelling of any integer in this format",
-            )
-        self.at = match.end()
-        if "." in spelling or "e" in spelling or "E" in spelling:
+        start = self.at
+        while self.at < self.length and self.text[self.at] in _NUMBER_CHARACTERS:
+            self.at += 1
+        spelling = self.text[start : self.at]
+        if not _INTEGER.match(spelling):
             raise _Refused(
                 NON_INTEGER_NUMBER,
-                f"{spelling} is not an integer, and this format writes integers only",
+                f"{spelling} is not the one spelling of any integer in this format: "
+                "an integer is 0, or -?[1-9][0-9]*, with no fraction, no exponent "
+                "and no leading zero",
             )
         value = int(spelling)
         if abs(value) > MAX_SAFE_INTEGER:

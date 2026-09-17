@@ -249,6 +249,8 @@ facts a document has no use for. charter/0.1 fixes all of them, and
 | disk number start | `0` |
 | internal attributes | `0` |
 | external attributes | `0` |
+| extra field | none: the field is zero bytes long, in the local header and in the directory record |
+| record comment | none: zero bytes, in the directory record |
 
 The DOS stamp is the part worth explaining. A file whose bytes are the record
 cannot also carry a reading of a clock: if two writers stamp the same document
@@ -262,6 +264,28 @@ Version needed, compression method, CRC-32, compressed size, uncompressed size,
 DOS date and DOS time must be equal in the local header and in the central
 directory. Flags are not in that list because the reader has to agree with
 itself about flags before it can decode anything, and refuses there instead.
+
+**The extra field and the comment are the two fields ZIP allots with no meaning
+here**, and they are why this section fixes a field's *presence* as well as its
+value. ZIP's extra field is where a writer puts a ZIP64 size, an extended
+timestamp, a user id, a filesystem attribute — every one of the facts the table
+above has just removed from the header, in a second spelling a forger can add
+without touching a byte any check reads — and a directory record's comment is
+free text. Nothing in charter/0.1 reads either one, so both are fixed at zero
+bytes, and `L0.ZIP.METADATA` reports a header that declares one with reason
+`EXTRA`: the word for a place the format gives no meaning to, which is the word
+§3.3 gives a general purpose bit this format has no room for. It is not
+`UNSUPPORTED`: an extra field needs nothing implemented, since a reader skips
+the bytes its length declares and reads the entry, so calling it a feature this
+verifier does not implement would be a claim about the reader rather than about
+the file. It is not `MISMATCH` either: a mismatch is a value that is not the one
+the format fixes, and there is no field here for a value to be in — a
+charter/0.1 header is its fixed part, its name, and then the entry's data. What
+ZIP's own tables say an extra field's identifier means is exactly what this
+section does not read: a reader that honoured one would be applying the rules of
+another format, and a reader that skipped it silently would be calling a file it
+never looked at whole. Both copies are read, in both kinds of header, so two
+copies that disagree about a length are this check's failure as well.
 
 The rule behind this one is worth stating plainly, because it is the rule that
 closed the last hole found in this verifier: **a byte the reader never looks at
@@ -329,6 +353,24 @@ three deliberate differences:
    second spelling of an integer rather than a different integer — `String(01)`
    is `"1"`, which is why it belongs to the family whose reason code says the
    value is not the number a reader would write.
+   **Where a number ends is part of the rule, not a habit of a scanner.** A
+   token that begins with `-` or with one of the ten ASCII digits is read as a
+   number, and it runs to the first character that cannot occur in one; the
+   characters that can are those ten digits, `-`, `+`, `.`, `e` and `E`. The
+   token is then compared against the one spelling of an integer, and a token
+   that is not that spelling carries NON_INTEGER_NUMBER whatever part of it is
+   wrong: a fraction (`1.0`), an exponent (`1e0`), a minus with no digits or a
+   second sign (`-`, `1-2`, `2026-01-01`), a leading zero (`01`, `007`), or a
+   run of them (`1.2.3`). This is deliberately not JSON's grammar. JSON calls
+   `01` and `2026-01-01` syntax errors, and this format calls both of them a
+   number a reader would not have written, because in each case the bytes where
+   a value belongs are a number spelled wrong rather than not a value at all —
+   and a reader that answered MALFORMED here would be describing its own
+   scanner's stopping point as a defect of the file. MALFORMED is for the
+   character where a value is due that cannot begin a number at all —
+   `{"a":+1}`, `{"a":@}`, `{"a":.5}` — and for a number-shaped token that is out
+   of the 53-bit range, which is the one case where the spelling is right and
+   the value is not: NUMBER_OUT_OF_RANGE.
 2. **Keys sorted by code point.** RFC 8785 sorts by UTF-16 code unit. The two
    orders disagree above U+FFFF, so this format says code point and means it.
 3. **A file is one canonical value followed by exactly one LF.** RFC 8785 has
@@ -708,7 +750,7 @@ The 30 checks, in the order they always appear in a verdict:
 | L0 | `L0.ZIP.VERSION` | no ZIP64, no multi-disk |
 | L0 | `L0.ZIP.FLAGS` | no general purpose bit other than the three allowed |
 | L0 | `L0.ZIP.LAYOUT` | every byte is accounted for, in order |
-| L0 | `L0.ZIP.METADATA` | no host, disk, clock or attributes; both copies of a claim agree |
+| L0 | `L0.ZIP.METADATA` | no host, disk, clock, attributes, extra field or comment; both copies of a claim agree |
 | L0 | `L0.ZIP.ENTRY_SET` | exactly the three required entries |
 | L0 | `L0.ZIP.ENTRY_DATA` | stored or raw-deflated, and it decodes |
 | L0 | `L0.ZIP.SIZES` | the declared uncompressed size is the real one |
@@ -834,8 +876,8 @@ call a bug rather than a judgement.
 | `L0.ZIP.READABLE` | the artifact is a ZIP this verifier can walk | whether there is an archive at all, and the end record's own version and disk facts: with neither, there is nothing else to read | `fixture` `not-a-zip`; `corpus` `central-offset-to-other-header`, `eocd-zip64-marker`, `eocd-multi-disk`, `entry-name-length-copies-differ`, `entry-byte-deleted-mid-directory`, `entry-name-not-utf8` |
 | `L0.ZIP.VERSION` | no ZIP64 in what an entry needs | each entry's declared feature level, read from the directory's copy of its header | `corpus` `entry-version-needed-zip64`, `entry-version-needed-local-only` |
 | `L0.ZIP.FLAGS` | no general purpose bit other than the three allowed | each entry's flag word, once the file has stated it the same way twice | `fixture` `encrypted-flag`; `corpus` `flag-word-above-the-format` |
-| `L0.ZIP.LAYOUT` | every byte is accounted for, in file order | the byte ranges, and the three facts of the end record that describe them | `corpus` `local-extra-entry-uncounted` (a gap), `entry-central-record-twice` (an overlap), `eocd-cd-size-wrong`, `entry-extra-len-off-by-one` (a range past the directory), `central-extra-len-past-eof`, `local-extra-field-unread` (bytes nothing reads) |
-| `L0.ZIP.METADATA` | no host, disk, clock or attributes; both copies of every other claim agree | the container's metadata fields — every repeated claim but the flag word, which the gate refuses a disagreement about | `fixture` `stamped-by-a-clock`; `corpus` `local-compressed-size-off-by-one`, `local-crc-zeroed`, `entry-version-needed-local-only` |
+| `L0.ZIP.LAYOUT` | every byte is accounted for, in file order | the byte ranges, and the three facts of the end record that describe them | `corpus` `local-extra-entry-uncounted` (a gap), `entry-central-record-twice` (an overlap), `eocd-cd-size-wrong`, `entry-extra-len-off-by-one` (a range past the directory), `central-extra-len-past-eof` |
+| `L0.ZIP.METADATA` | no host, disk, clock, attributes, extra field or comment; both copies of every other claim agree | the container's metadata fields — the ones the format fixes at one value, and the two it fixes at none, plus every repeated claim but the flag word, which the gate refuses a disagreement about | `fixture` `stamped-by-a-clock`; `corpus` `local-compressed-size-off-by-one`, `local-crc-zeroed`, `entry-version-needed-local-only`, `local-extra-field-unread` |
 | `L0.ZIP.ENTRY_SET` | exactly the three required entries | which names are in the archive | `fixture` `missing-entry`, `duplicate-entry`, `extra-entry` |
 | `L0.ZIP.ENTRY_DATA` | stored or raw-deflated, and it decodes | each entry's method, the bytes it decodes to, and the entry's two ceilings | `fixture` `unsupported-method`, `stored-declared-deflated`; `corpus` `entry-uncompressed-size-above-ceiling` |
 | `L0.ZIP.SIZES` | the declared uncompressed size is the real one | the declared sizes, as the directory states them, for every entry that can be read | `fixture` `wrong-declared-size`; `corpus` `unsupported-method-beside-a-wrong-size` (the measurement a check keeps when another entry cannot be read) |
@@ -962,11 +1004,17 @@ a section of 3, because its answer is §10.1's.
 Five of the eight moved the port, one moved both implementations (`entry-extra-len-off-by-one`:
 §3.4 had no direction to be wrong about, so both readers answered `EXTRA` where
 the rule requires `MISMATCH`), and two moved nobody — one enforced a rule §3.1
-already stated, and one records something no implementation can be wrong about:
-`local-extra-field-unread` is a charter carrying a four-byte extra field, and it
-verifies in both, because §3.4 accounts for the bytes and no check reads them.
-That is the one family this pass leaves open: settling it changes the set of files
-that verify, which §14 makes a decision about the format rather than a patch.
+already stated, and one recorded something no implementation could be wrong
+about: `local-extra-field-unread` was a charter carrying a four-byte extra field,
+and it verified in both, because §3.4 accounted for the bytes and no check read
+them. That case was the one family the pass left open — settling it changes the
+set of files that verify, which §14 makes a decision about the format rather than
+a patch — and the decision has since been made where the case said it would be:
+§3.6 now fixes the extra field and the record comment at zero bytes and gives
+them to `L0.ZIP.METADATA` with reason `EXTRA`, §14 says which voice answers an
+artifact that holds a shape charter/0.1 gives no rule to, and the case's answer
+is a defect rather than a pass. Both implementations moved on it, and this time
+neither was wrong before: the rule was the thing that was missing.
 `implementations/python/README.md` records which implementation moved, case by
 case, with `vectors/container/README.md` beside it.
 
@@ -1236,6 +1284,30 @@ That is the only behaviour that lets two strangers agree about what a verdict
 means when they are running different software: the format identifier is a
 promise about which rules were applied, and a reader who ignores it is guessing
 on the author's behalf.
+
+**The promise has a second half, and it is about the artifact rather than about
+the declaration.** An artifact that declares charter/0.1 and holds something
+charter/0.1's own sections give no rule for is not a charter/0.1 artifact,
+whatever its `manifest.format` says, and a reader must not interpret the shape
+by the rules of whichever other format uses it: a ZIP reader that honoured an
+extra field's identifier, or a JSON reader that rounded a float, would be
+applying rules this identifier does not promise, and two strangers running
+different software would then disagree about the verdict while agreeing about the
+identifier — which is the disagreement the paragraph above exists to prevent.
+
+There is no version to report for such an artifact, and that is the rule.
+UNSUPPORTED_VERSION names the artifact that *declares* an identifier this
+verifier does not implement, and UNSUPPORTED_FEATURE names a feature the
+*reader* does not implement; neither is a claim about the format, and a reader
+that reached for one of them here would be reporting its own vocabulary instead
+of the file. What such an artifact gets is a failure from the check whose own
+requirement its shape breaks, with the reason code for a place the format gives
+no rule to — `EXTRA` for a byte or a field where the format puts nothing (§3.3's
+general purpose bit, §3.6's extra field), `UNKNOWN_FIELD` for a named field no
+section defines (§5, §7), `MALFORMED` for bytes that are not the shape any
+section names. The check and the code are the answer precisely because they say
+*where* in the format the artifact stopped being one; a version identifier would
+say only that the reader had run out of ideas.
 
 ## 15. The producer
 

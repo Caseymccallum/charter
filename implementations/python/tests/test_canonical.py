@@ -125,16 +125,45 @@ class ReadingTest(unittest.TestCase):
             canonical.parse_document(b'{"a":9007199254740991}'), {"a": 2**53 - 1}
         )
 
-    def test_a_leading_zero_is_a_violation_of_the_integer_rules(self) -> None:
-        """SPEC section 4.1 lists five violations and names the reason for four.
+    def test_a_leading_zero_is_refused_by_the_integer_rule(self) -> None:
+        """`01` is a number the reader would not have written, not a syntax error.
 
-        `01` is in the list, and the sentence gives the first three
-        NON_INTEGER_NUMBER and the last NUMBER_OUT_OF_RANGE, leaving `01` without
-        a code. This is one of the ambiguities the README records; a probe
-        against the reference decided it, and the constant in `canonical` is the
-        answer.
+        SPEC section 4's integer rule: a token that begins with `-` or a digit is
+        read as a number, it runs to the first character that cannot occur in one,
+        and a token that is not the one spelling of an integer carries
+        NON_INTEGER_NUMBER. JSON calls `01` a syntax error and this format does
+        not, which is why the answer is a reason code about the number rather
+        than one about the object that holds it.
         """
-        self.assertEqual(refusal(b'{"a":01}').reason, canonical.LEADING_ZERO_REASON)
+        self.assertEqual(refusal(b'{"a":01}').reason, NON_INTEGER_NUMBER)
+
+    def test_a_number_token_runs_to_the_first_character_that_cannot_be_in_one(
+        self,
+    ) -> None:
+        """Where a number ends is the format's rule, not a scanner's habit.
+
+        A malformed value in the manifest was the case that found this: the
+        reference read `2026-01-01` as one token and reported NON_INTEGER_NUMBER,
+        and this port's scanner stopped at the `-` and reported MALFORMED about
+        an object. Section 4 now fixes the token's extent, so every one of these
+        is the same sentence.
+        """
+        for spelling in (
+            b'{"a":2026-01-01}',  # a second sign: the created_at case
+            b'{"a":1-2}',
+            b'{"a":-}',
+            b'{"a":1.0}',
+            b'{"a":1e0}',
+            b'{"a":1.2.3}',
+            b'{"a":007}',
+        ):
+            with self.subTest(spelling):
+                self.assertEqual(refusal(spelling).reason, NON_INTEGER_NUMBER)
+        # A character that cannot begin a number is still MALFORMED, and so is a
+        # digit only a locale would call one: the token is ASCII.
+        for spelling in (b'{"a":+1}', b'{"a":@}', b'{"a":.5}', '{"a":٥}'.encode("utf-8")):
+            with self.subTest(spelling):
+                self.assertEqual(refusal(spelling).reason, MALFORMED)
 
     def test_duplicate_keys_are_refused_rather_than_resolved(self) -> None:
         self.assertEqual(refusal(b'{"a":1,"a":2}').reason, DUPLICATE)

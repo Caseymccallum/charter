@@ -630,6 +630,16 @@ def check_layout(ctx: Context) -> Outcome:
 
 
 def check_metadata(ctx: Context) -> Outcome:
+    """No host, disk, clock, attributes, extra field or comment. SPEC 3.6.
+
+    The two fields at the end are the ones the format fixes at *zero bytes*
+    rather than at a value, and they are why this check reads a length as well as
+    a value: an extra field is where ZIP puts a ZIP64 size, an extended timestamp
+    or a file attribute, in a second spelling no check here reads, and a record's
+    comment is free text. EXTRA is the code for a place the format gives no
+    meaning to, which is the code section 3.3 gives a flag bit charter/0.1 has no
+    room for; MISMATCH is for a field that is there and holds the wrong value.
+    """
     walk = ctx.container()
     for entry in walk.entries:
         if entry.version_made_by != container.FIXED_VERSION_MADE_BY:
@@ -649,6 +659,21 @@ def check_metadata(ctx: Context) -> Outcome:
                 MISMATCH,
                 f"{entry.name_text} declares file attributes, and charter/0.1 fixes "
                 "both attribute fields at 0",
+            )
+        if entry.local_extra_len or entry.extra_len:
+            return failed(
+                EXTRA,
+                f"{entry.name_text} declares an extra field of {entry.local_extra_len} "
+                f"byte(s) in its local header and {entry.extra_len} byte(s) in the "
+                "directory record, and charter/0.1 gives that field no meaning: it is "
+                "where ZIP puts a ZIP64 size, an extended timestamp or a file "
+                "attribute",
+            )
+        if entry.comment_len:
+            return failed(
+                EXTRA,
+                f"{entry.name_text} carries a {entry.comment_len}-byte comment in its "
+                "directory record, and charter/0.1 gives that field no meaning either",
             )
         for copy, where in (
             (entry.central, "central directory"),
@@ -680,7 +705,8 @@ def check_metadata(ctx: Context) -> Outcome:
                 )
     return passed(
         f"all {len(walk.entries)} entries declare the version, method, CRC-32, sizes, "
-        "and DOS stamp the format fixes, twice over"
+        "and DOS stamp the format fixes, twice over, and carry no extra field and no "
+        "comment"
     )
 
 

@@ -104,12 +104,12 @@ every check it cannot perform, which is a verdict of `INCOMPLETE`, never a pass.
 
 ```
 node vectors/run.js     # replay 54 artifacts against 54 recorded answers
-npm run probe           # 26 more artifacts, asked of two implementations
+npm run probe           # 27 more artifacts, asked of two implementations
 npm run corpus          # 34 mutated containers, asked of two implementations
 npm run sweep           # every field of both documents, rewritten eleven ways each
 npm test                # the 148 tests, through node --test
 npm run kit:python      # the same 54 answers, through a second implementation
-npm run test:python     # 113 Python tests, including that replay
+npm run test:python     # 114 Python tests, including that replay
 ```
 
 `vectors/run.js` is written for a reader, not for the author: it reads
@@ -117,8 +117,9 @@ npm run test:python     # 113 Python tests, including that replay
 verifier for a verdict. If the bytes on disk are not the bytes the record
 describes, it says so instead of quietly agreeing.
 
-`vectors/probe/` is the same idea for the cases the kit does not contain: 26
-artifacts built by hand — a leading-zero integer, four spellings of an escape, an
+`vectors/probe/` is the same idea for the cases the kit does not contain: 27
+artifacts built by hand — a leading-zero integer, a `created_at` whose value opens
+a number token where its opening quote should be, four spellings of an escape, an
 uppercase digest, a key of 31 bytes, a base64url tail whose unused bits are not
 zero, a log line that is not an object, a CRLF line, an empty digest, an empty
 signature, a parent in uppercase, an empty `format`, an empty `key_id`, a first
@@ -150,9 +151,14 @@ the port's findings is worth naming here: a container whose two headers disagree
 about an allowed flag bit, which the port had called `VERIFIED`. Every one was
 settled by reading the ZIP specification and SPEC.md §3, amending §3, and then
 fixing the implementation that was wrong; §10.3 counts what the corpus settled, and
-[`vectors/container/README.md`](vectors/container/README.md) lists the findings —
-including the one case that records a hole rather than a difference, an extra
-field that both implementations accept while nothing reads its bytes.
+[`vectors/container/README.md`](vectors/container/README.md) lists the findings.
+One of them was not a difference at all: `local-extra-field-unread` recorded a
+*hole* — an extra field carried and declared honestly, which both implementations
+accepted while nothing read its bytes — and settling it moved both of them,
+because the rule was what was missing rather than either reading being wrong.
+§3.6 now fixes a header's extra field and a directory record's comment at zero
+bytes, `L0.ZIP.METADATA` reports them with reason `EXTRA`, and §14 says which voice
+answers an artifact that holds a shape charter/0.1 gives no rule to.
 
 `implementations/python/tools/sweep.py` is the same question asked
 systematically: every field of both documents, rewritten eleven ways each, with
@@ -268,7 +274,7 @@ can decide from the artifact alone, and they are printed rather than guessed at.
 | `docs/first-user.md` | the protocol for the format's first user session: what the person is given, the three moments to record verbatim, the one question to ask, and the rule that a session the person cannot finish is the finding. The session has not been run, and the document says so rather than describing one |
 | `cli/charter.js` | the only file in the project that reads or writes a file, and the only place a verdict or a refusal becomes text |
 | `vectors/` | the conformance kit: an independent builder, 54 artifacts, the recorded answers, and the replay |
-| `vectors/probe/` | the differential probe: 26 more artifacts, the answers the reference gives for them, and the replay that asks both implementations |
+| `vectors/probe/` | the differential probe: 27 more artifacts, the answers the reference gives for them, and the replay that asks both implementations |
 | `vectors/container/` | the same idea one level down: 34 hand-mutated containers — the whole file, not just the JSON — with both implementations' answers recorded for each, and a replay that fails when an implementation moves |
 | `implementations/python/` | a second reading of the spec: a Python verifier with no shared code, no shared crypto and its own replay of the same 54 answers, plus what the exercise found. `tools/sweep.py`, `tools/probe.py` and `tools/corpus.py` are its authoring tools: the sweep asks both implementations about every field of both documents, rewritten eleven ways each; the other two write the probe's and the corpus's records |
 | `test/` | 148 tests, including `purity.test.js` (the verifier stays pure, the serializer shares no code with the parser, and no writer is reachable from a verdict), `schema.test.js` (a field whose string another check reads is not measured by the reader, and the kinds the readers use are the kinds the schema declares), `parser.fuzz.test.js` (no input throws), `canonical.roundtrip.test.js` (every committed artifact is a fixed point of the reader and the serializer, both directions), `adversarial.test.js` (the table in `adversarial.md` is a claim the tests check), `producer.test.js` (seal, then verify, then every way a sealed file can be made to lie), `probe.test.js` (the probe's record, replayed), `spec.test.js` (every row of §10.2 says what settles it, and each of those names is a case that exists), `corpus.test.js` (the corpus's record, replayed, and that no case is left as a divergence), and `editor.test.js` (the page's import graph, and the page itself in a headless browser). `test/corpus.js` is not a test file: it is the hostile-text corpus both fuzz suites are stated over, so `node --test` lists it and finds nothing in it. |
@@ -280,13 +286,13 @@ can decide from the artifact alone, and they are printed rather than guessed at.
 npm test          # node --test: discovers test/*.test.js and runs all 148
 npm run kit       # replay the conformance kit
 npm run kit:build # rebuild the kit's artifacts (the author's program)
-npm run probe     # ask the reference and the Python port about 26 hand-built artifacts
+npm run probe     # ask the reference and the Python port about 27 hand-built artifacts
 npm run corpus    # ask them both about 34 mutated containers
 npm run sweep     # ask them both about every field of both documents, 212 questions
 npm run seal      # the producer's verbs: seal, inspect, cite, keygen
 npm run editor    # serve the repository and open the editor
 npm run kit:python  # replay the same kit with the Python verifier
-npm run test:python # the Python port's 113 tests
+npm run test:python # the Python port's 114 tests
 ```
 
 `vectors/build.js` shares no code with `verifier/**`. It writes the canonical

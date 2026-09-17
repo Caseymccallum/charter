@@ -21,7 +21,7 @@ the replay above is the reader's.
 
 ## Why a corpus, and not a field
 
-The conformance kit holds 54 artifacts and the differential probe holds 26 more,
+The conformance kit holds 54 artifacts and the differential probe holds 27 more,
 and between them they ask about every *field* a document has. Neither can reach
 the container's byte arithmetic. A field-level case can say "this digest is
 uppercase"; it cannot say "this entry's declared compressed size is one byte more
@@ -85,19 +85,28 @@ one of them reached a sentence of SPEC.md the first 26 had not.
 | `entry-version-needed-local-only` | one entry's *local* header declares feature level 0xFFFF while its directory record says 2.0 | **the port**: it read both copies and reported `UNSUPPORTED_VERSION`; §3.2 now says the check reads the directory's copy, which is §3.5's rule for every claim the file states twice |
 | `central-extra-len-past-eof` | a directory record declares 0xFFFF bytes of extra field, so its extent reaches past the file | **the port**: it refused at the gate with `MALFORMED` where the reference reported `LAYOUT`=`MISMATCH`; §3.4 now says what "the size its records use" is, and the gate reads names |
 | `unsupported-method-beside-a-wrong-size` | two defects at once: one entry's bytes cannot be read and another entry's declared size is wrong | **the port**: it reported `SKIP` for the size check and hid the defect it had measured. §10.1 gains the rule one entry down from "the gate is the fact, not the status" |
-| `local-extra-field-unread` | an extra field carried and declared honestly | **nobody**: the file verifies, in both implementations, and this is the corpus's first recorded *hole* rather than a difference — see below |
+| `local-extra-field-unread` | an extra field carried and declared honestly | **both implementations**, when the hole it recorded was settled: the file used to verify in both, and it is a defect now — see below |
 
 The last of the eight is the one to read twice. §3.4 puts an extra field in the
 list of things every byte of the file is accounted for by, nothing reads what is
-inside it, and both implementations accept it, so a four-byte region of a
-charter/0.1 artifact can be filled with anything without a verdict changing.
+inside it, and both implementations accepted it, so a four-byte region of a
+charter/0.1 artifact could be filled with anything without a verdict changing.
 §3.6's last paragraph — *a byte the reader never looks at is a byte a forged file
-can change for free* — is the sentence that argues with that. The case is recorded
-rather than settled because settling it changes the set of files that verify,
-which §14's list makes a decision about the format rather than a patch: either an
-extra field is bytes the layout accounts for and nothing compares, or a charter
-may not carry one and this case's answer becomes a defect. It is here so that the
-day the format decides, the decision has an artifact to move.
+can change for free* — is the sentence that argued with that, and it won: the case
+was left settled-once-the-format-decides, and the format has decided. §3.6's table
+now fixes a header's extra field and a directory record's comment at zero bytes and
+gives them to `L0.ZIP.METADATA` with reason `EXTRA` — the word the spec already
+uses for a general purpose bit charter/0.1 has no room for, and not `MISMATCH`
+(which is a value that is not the one a field the format *has* should hold) or
+`UNSUPPORTED` (which is a claim about the reader, and an extra field needs nothing
+implemented). §14 is the other half of the settlement, and it is the part that
+applies to artifacts this corpus has not generated: an artifact that declares
+charter/0.1 and holds a shape charter/0.1 gives no rule to has no version to
+report, so the answer is the check that owns the shape and the code for a place the
+format puts nothing. Both implementations moved on this case, and it is the only
+case here where neither was wrong before the rule existed. The field's identifier
+in this artifact is the extended-timestamp one, which is the shape of the hole: the
+fact §3.6 removes from the header is the fact that field carries.
 
 Two of the eight are not one mutation of one field, and the record says so rather
 than hiding it: `entry-byte-deleted-mid-directory` removes a byte, and

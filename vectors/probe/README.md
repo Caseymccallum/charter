@@ -1,6 +1,6 @@
 # The differential probe
 
-Twenty-six artifacts the conformance kit does not hold, and the answers two
+Twenty-seven artifacts the conformance kit does not hold, and the answers two
 implementations give for them.
 
 ```
@@ -9,7 +9,7 @@ node vectors/probe/run.js      # ask both implementations, compare with the reco
 
 ```
 vectors/probe/expected.json    the artifacts' answers, recorded from the reference
-vectors/probe/out/*.charter    the 26 artifacts
+vectors/probe/out/*.charter    the 27 artifacts
 vectors/probe/run.js           the replay: reference, Python, and the record
 ```
 
@@ -94,6 +94,19 @@ defect and not part of the question, which is why `asked` names the one failure 
 case is about and the one check that has to pass, and `expected` is the whole
 verdict.
 
+**One more case was added after that, and it is the first the builder refused as a
+finding.** `created-at-value-opens-a-number` is the `created_at` disagreement the
+container pass found and could not record: replace the value's first byte with a
+newline and the bytes `2026-01-01T00:00:00Z` stand where a value belongs. The
+reference read `2026-01-01` as one number token and reported
+`L0.MANIFEST.PARSE`=NON_INTEGER_NUMBER; the port's scanner stopped at the `-`, kept
+`2026` as its number, and reported MALFORMED about an object holding a `-` where a
+comma or a brace was due. §4 said nothing about where a malformed number ends, so
+the builder was right to refuse: the answer depended on which implementation you
+asked. §4 now states the rule — a token runs to the first character that cannot
+occur in one — the port moves with it, and this artifact is the fixture that keeps
+the two from drifting apart again. It is the case that closed the last hole §4 had.
+
 ## Running it, and what it needs
 
 The replay needs **Node**, which is running it, and it uses the **Python
@@ -138,12 +151,13 @@ a broken fixture rather than a finding, and a case the two implementations do no
 agree about *is* the finding — both have to be settled in SPEC.md rather than
 papered over by overwriting a record with one of the two answers.
 
-Twenty-two of the twenty-six questions were derived from SPEC.md alone and every
-one of them was confirmed by the reference. Four took a change to the reference
+Twenty-two of the twenty-seven questions were derived from SPEC.md alone and every
+one of them was confirmed by the reference. Five took a change to the reference
 or to the port for the recorded answer to be the answer the format requires — the
-absent-digest case and the three cases of a field measuring a string another
-check reads — which is what the probe is for: it asked the question in the spec's
-words and the two answers did not match. The three cases added last agreed from
-the first run, and they are in the record for a different reason — see the section
-above. The list of what each case asks and why is in
+absent-digest case, the three cases of a field measuring a string another check
+reads, and the number token where the port had stopped reading at a `-` — which is
+what the probe is for: it asked the question in the spec's words and the two answers
+did not match. The three cases added after the one-owner pass agreed from the first
+run, and they are in the record for a different reason — see the section above. The
+list of what each case asks and why is in
 `implementations/python/tools/probe.py`, above the case.

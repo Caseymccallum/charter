@@ -2,8 +2,9 @@
 
 The kit is 54 artifacts with recorded answers. It is not the whole format: a
 fixture can only ask about a rule somebody already thought of, and a rule nobody
-wrote down is exactly where two implementations drift apart. This tool builds 26
-artifacts by hand — a leading-zero integer, four spellings of an escape, an
+wrote down is exactly where two implementations drift apart. This tool builds 27
+artifacts by hand — a leading-zero integer, a `created_at` whose value opens a
+number token where the opening quote should be, four spellings of an escape, an
 uppercase digest, a key with a trailing bit pattern that is not zero, a log line
 that is not an object, a CRLF line, an unknown field in four places, an empty
 digest, an empty signature, a parent in uppercase, an empty `format`, an empty
@@ -220,6 +221,14 @@ def probes() -> list[dict]:
             "probe": "`1e2` where the title belongs. Section 4.1 reports `1.0`, `1e0` and `-0` as NON_INTEGER_NUMBER; an exponent is the same family of spelling, and it is read before anything could notice that a title is a string.",
             "asked": {"verdict": "BROKEN", "fail": {"L0.MANIFEST.PARSE": "NON_INTEGER_NUMBER"}},
             "bytes": with_manifest(manifest_text().replace(title, "1e2")),
+        },
+        {
+            "name": "created-at-value-opens-a-number",
+            "probe": "`created_at`'s value with its opening quote replaced by a newline, so the bytes `2026-01-01T00:00:00Z` stand where a value belongs. The parse finds a number token where a value is due and the token is not the one spelling of an integer, so `L0.MANIFEST.PARSE` reports NON_INTEGER_NUMBER — the family `01` is in, and for the same reason: the bytes where a number belongs are a number spelled wrong rather than a value of another kind. The two implementations disagreed here until section 4 fixed where a number token ends: the reference ran the token to the first character that cannot occur in one (`2026-01-01`) and reported NON_INTEGER_NUMBER, while this port's scanner stopped at the `-`, kept `2026` as its number, and reported MALFORMED about an object that holds a `-` where a comma or a brace was due. The port moved, and this case is the fixture that keeps the disagreement from coming back.",
+            "asked": {"verdict": "BROKEN", "fail": {"L0.MANIFEST.PARSE": "NON_INTEGER_NUMBER"}},
+            "bytes": with_manifest(
+                manifest_text().replace('"created_at":"', '"created_at":\n')
+            ),
         },
         {
             "name": "manifest-array",

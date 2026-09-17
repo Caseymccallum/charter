@@ -10,13 +10,13 @@ Ed25519 arithmetic are all implemented here.
 cd implementations/python
 python -m charter_verify ../../vectors/out/valid.charter --json   # one file
 python -m charter_verify.kit                                      # the conformance kit
-python -m unittest discover                                       # 113 tests
+python -m unittest discover                                       # 114 tests
 python tools/probe.py --check                                     # the probe's fixtures against their recipes
 python tools/corpus.py --check                                    # the corpus's containers against their mutations
 ```
 
 `node ../../vectors/probe/run.js` asks this implementation, the reference, and
-the probe's record the same 26 questions; `node ../../vectors/container/run.js`
+the probe's record the same 27 questions; `node ../../vectors/container/run.js`
 asks them about 34 hand-mutated containers. Those are the harnesses
 [`vectors/probe/README.md`](../../vectors/probe/README.md) and
 [`vectors/container/README.md`](../../vectors/container/README.md) describe, and
@@ -34,6 +34,19 @@ about Python. The container corpus at the end of
 eleven more, ten of them this port's, and §3 was amended for them; eight cases
 built after that found five more, all of them this port's, and one of those was a
 check that measured a defect and reported an absence of evidence instead.
+
+A later pass settled the two findings the corpus had recorded rather than
+patched, and they are counted on their own because neither is a case where the
+port read the document wrongly: where a malformed number ends (§4 now says a
+number token runs to the first character that cannot occur in one, so the two
+implementations no longer disagree about a `created_at` whose value opens
+`2026-01-01` — this port moved, and the probe's
+`created-at-value-opens-a-number` holds the answer), and whether a charter may
+carry an extra field (§3.6 fixes it and a record's comment at zero bytes and
+gives them to `L0.ZIP.METADATA` with reason `EXTRA`; §14 says no version is
+reported for a shape the format gives no rule to). The second moved **both**
+implementations, and it is the one settlement here where neither was wrong
+first: the rule was what was missing.
 
 ## Language and dependencies
 
@@ -106,7 +119,7 @@ now follow it. The cases are frozen as tests in `tests/test_spec_gaps.py`.
 | Which reason code does a value no enumeration defines carry? | UNKNOWN_FIELD, for `author.algorithm` and for an entry's `action`: "a field value it does not define, not skipped over". A value that is not a string at all is MALFORMED | §5, §7 |
 | Which reason code does an empty `format` carry? | UNSUPPORTED_VERSION: §5's three cases are "absent", "not a string" and "a value this verifier does not implement", and `""` is a string | §5 |
 | Which base64url failures are MALFORMED? | Only the decoded length. Anything that is not the one spelling of *some* byte string — a character outside the alphabet, a length no byte string is spelled with, `=` padding, trailing bits that are not zero — is NON_CANONICAL_ENCODING. The empty string is the one spelling of the empty byte string, so it is the length rule that refuses it | §5, §8 |
-| Which reason code does `01` carry? | NON_INTEGER_NUMBER, with `1.0`, `1e0` and `-0` | §4.1 |
+| Which reason code does `01` carry, and how far does a malformed number run? | NON_INTEGER_NUMBER, with `1.0`, `1e0` and `-0`; and a number token runs to the first character that cannot occur in one, so `2026-01-01` is one token and carries that same code rather than a MALFORMED about the scanner's stopping point. This port stopped at the `-` and reported MALFORMED until §4 stated where a token ends | §4 |
 | Does `L0.PROVENANCE.NONEMPTY` count lines or entries? | Entries: a log whose only line is `[1,2]` has none, so PARSE reports the line and NONEMPTY is SKIP | §7 |
 | Which of two entries with the same name does a reader read? | The one whose local header comes first in the file | §3 |
 | What does a skipped check carry? | PREREQUISITE_FAILED, except after the version gate, where it carries UNSUPPORTED_VERSION | §10.1 |
@@ -278,10 +291,11 @@ Three passes, in increasing severity:
 2. **The interface.** For each of the 54 fixtures, the reference CLI's `--json`
    was read and its shape compared to this verifier's, key for key and check id
    for check id: 0 differences.
-3. **Artifacts neither kit contains.** `vectors/probe/` holds 26 artifacts built
+3. **Artifacts neither kit contains.** `vectors/probe/` holds 27 artifacts built
    by hand — an uppercase digest, a padded signature, a key of 31 bytes, a key
    with a non-zero trailing bit pattern, a missing `format`, a non-string
-   `format`, a nested unknown field, a leading-zero integer, four escape
+   `format`, a nested unknown field, a leading-zero integer, a `created_at` whose
+   value opens a number token where its opening quote should be, four escape
    spellings, a duplicate key, an array, a float where a title belongs, a log line
    that is not an object, a bare number, a CRLF line, a non-canonical line, an
    unknown log field, an empty digest, an empty signature, a parent in uppercase,
@@ -297,10 +311,15 @@ Three passes, in increasing severity:
    CLI wrote a verdict whose title was U+1F600 as nothing at all when its stdout
    was a pipe, because Windows encodes text with the console code page. The first
    is frozen in `tests/test_spec_gaps.py`, the second in `tests/test_cli.py`, and
-   both are written down in `vectors/probe/README.md`. The last three of the 26
+   both are written down in `vectors/probe/README.md`. The last three of the 27
    were added in a later pass, and they are the only three that arrived after an
    implementation had already stopped moving: they are the readings §3 and §10.2
    had settled, written down in the form a stranger can replay.
+   `created-at-value-opens-a-number` is the third pass's, added after this port
+   moved on it: it was the recorded disagreement over where a malformed number
+   ends — the reference said NON_INTEGER_NUMBER for the token `2026-01-01` and
+   this port said MALFORMED about an object — and §4 now states the rule the
+   reference was following.
 
 A fourth pass and a fourth reader: **the sweep.** `tools/sweep.py` asks the two
 implementations about every field of both documents, rewritten eleven ways each —
@@ -330,7 +349,7 @@ disagreement. What it settled lives in `tests/test_spec_gaps.py`, in
 finding tool, not a fixture — nothing it builds is committed.
 
 A fifth pass, and the one that went a level below both of those: **the container
-corpus.** The kit's 54 artifacts and the probe's 26 cases are JSON documents
+corpus.** The kit's 54 artifacts and the probe's 27 cases are JSON documents
 inside a container, and every check they exercise reads a *field*. None of them
 can reach the container's byte arithmetic, because "this entry's declared
 compressed size is one byte more than the bytes after it" is not a field of a
@@ -452,12 +471,17 @@ but *silent*:
 `entry-extra-len-off-by-one` moved **both** implementations: each answered `EXTRA`
 where §3.4's rule requires `MISMATCH`, because §3.4 gave the directory-offset
 comparison one code and no direction. `entry-name-length-copies-differ` moved
-nobody, and `local-extra-field-unread` records something neither implementation can
-be wrong about: a charter carrying a four-byte extra field *verifies*, because §3.4
-accounts for its bytes and no check reads them. That is the one family this pass
-leaves open, since settling it changes the set of files that verify — §14's
-question rather than a patch — and the case is in the corpus so that the decision
-has an artifact to move.
+nobody, and `local-extra-field-unread` was the one case neither implementation
+could be wrong about: a charter carrying a four-byte extra field *verified*,
+because §3.4 accounted for its bytes and no check read them. That family has been
+settled rather than left open, and it moved both implementations when it was: §3.6
+now fixes the extra field and a directory record's comment at zero bytes and gives
+them to `L0.ZIP.METADATA` with reason `EXTRA`, §14 says which voice answers an
+artifact that holds a shape charter/0.1 gives no rule to, and the case's answer is
+a defect. Two other cases in the corpus carry such a field and gained the same
+failure beside the one they were built to ask about, which is why their recorded
+answers name two checks rather than one. The settlement is the one in this file
+where neither implementation was wrong before it: the rule was what was missing.
 
 **The fuzzer the recommendation asked for was not built**, on a measurement rather
 than a guess. A differential sweep — every field of every record moved seven ways,
@@ -502,8 +526,8 @@ deliberately implements only the verifying half of RFC 8032.
 | `charter_verify/verdict.py` | the three verdicts, the two output forms, the five statements of §11 |
 | `charter_verify/cli.py` | `python -m charter_verify <file> [--all] [--json]`, and the exit codes |
 | `charter_verify/kit.py` | the replay, and the audit hook that fails the run if `verifier/**` is opened |
-| `tools/probe.py` | the 26 differential probes: their recipes, the builder that records the reference's answers and refuses a record the port disagrees with, and `--check` |
+| `tools/probe.py` | the 27 differential probes: their recipes, the builder that records the reference's answers and refuses a record the port disagrees with, and `--check` |
 | `tools/corpus.py` | the 34 container mutations: their recipes, the builder that writes the artifacts and both implementations' answers for each, and `--check`, which rebuilds every artifact in memory and refuses one that is not the file its mutation makes |
 | `tools/sweep.py` | every field of both documents, rewritten eleven ways each, asked of both implementations: a finding tool, and the program that settled the rule at the head of §10 |
 | `tools/differential.py` | the five things two implementations are compared by, once, for the three tools above |
-| `tests/` | 113 tests, including the replay, the canonical rules, the container, the field rules, the Ed25519 arithmetic, the CLI, the eight silent cases, the container corpus, and two the probe found after it was committed |
+| `tests/` | 114 tests, including the replay, the canonical rules, the container, the field rules, the Ed25519 arithmetic, the CLI, the eight silent cases, the container corpus, and two the probe found after it was committed |

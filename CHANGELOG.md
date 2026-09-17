@@ -4,6 +4,98 @@ Recorded because they are decisions about published behaviour, not internal
 tidying. The format identifier in `manifest.format` changes when section 14 of
 [SPEC.md](SPEC.md) changes; this file records what changed, when, and why.
 
+## Unreleased — the two findings settled, and the session that waits on a person
+
+The pass before this one recorded two findings rather than patching them, and both
+were the right shape. Neither was an editor problem: both were format problems, and
+they had to be settled first. A first-user session that hits a format hole tells you
+about the format, not about the editor, and the session is the one chance to find
+out about the editor. Both are settled here, every suite is green on the pinned
+floor, and the session has still not been run — `docs/first-user.md` says so and is
+otherwise the document it was.
+
+### An extra field is a shape charter/0.1 has no room for
+
+`local-extra-field-unread` was the corpus's first recorded *hole* rather than a
+difference: a local header carrying the four-byte UNIX extended-timestamp field,
+declared honestly, which both implementations accepted because §3.4 accounted for
+the bytes and no check read them. §3.6's own rule — *a byte the reader never looks
+at is a byte a forged file can change for free* — is the sentence that argued with
+that, and §3.6 is where the settlement went, because the question is what a header
+field may hold and that is the section whose table fixes that:
+
+- **§3.6's table gains two rows.** A header's extra field is zero bytes long, in the
+  local header and in the directory record, and a directory record's comment is
+  zero bytes. Both copies are read, so two copies that disagree about a length are
+  this check's failure too.
+- **`L0.ZIP.METADATA` is the check**, and it reports `EXTRA`. Not `MISMATCH`: a
+  mismatch is a value that is not the one the format fixes *in a field the format
+  has*, and there is no field here for a value to be in — a charter/0.1 header is
+  its fixed part, its name, and then the data. Not `UNSUPPORTED` either: an extra
+  field needs nothing implemented, since a reader skips the bytes the length
+  declares and reads the entry, so that code would be a claim about the reader
+  rather than about the file. `EXTRA` is the word §3.3 already gives a general
+  purpose bit charter/0.1 has no room for, and §3.4 gives bytes where the format
+  does not put them. ZIP's own tables say an extra field's identifier means
+  something — 0x0001 is a ZIP64 size, 0x5455 a timestamp — and reading those would
+  be applying another format's rules to a file that declares this one.
+- **§14 gains the rule the rest of the format needed anyway**: an artifact that
+  declares charter/0.1 and holds a shape charter/0.1 gives no rule to has no version
+  to report. `UNSUPPORTED_VERSION` is for an artifact that *declares* an identifier
+  this verifier does not implement and `UNSUPPORTED_FEATURE` is a claim about the
+  reader, so the answer is the check whose requirement the shape breaks, with the
+  code for a place the format gives no rule to — `EXTRA` for §3.3's flag bit and
+  §3.6's extra field, `UNKNOWN_FIELD` for a named field no section defines,
+  `MALFORMED` for bytes that are not the shape any section names.
+- **§10's registry and §10.2 say so**, §10.3's account of the family that pass left
+  open now records the settlement, and the case's `spec` moved from §3.4 to §3.6,
+  because the column means where an answer lives and that is where this one lives.
+
+**Both implementations moved**, and this is the one case in the project where
+neither was wrong before the rule existed: the rule was what was missing. Two other
+corpus cases carry an extra field of their own — `entry-extra-len-off-by-one` and
+`central-extra-len-past-eof` — so their recorded answers gained
+`L0.ZIP.METADATA`=EXTRA beside the failure each was built to ask about, and the
+failure each was built for did not move. `verifier/zip.js` now keeps each entry's
+local extra-field length, `charter_verify/checks.py` reads the same two lengths, and
+nothing else under `verifier/**` changed.
+
+### A number token ends where the format says it ends
+
+The second finding was a disagreement the probe's builder refused to record, and the
+builder was right to: replace the first byte of `created_at`'s value with a newline
+and the bytes `2026-01-01T00:00:00Z` stand where a value belongs. The reference
+reported `L0.MANIFEST.PARSE`=NON_INTEGER_NUMBER and the port reported MALFORMED
+about an object holding a `-` where a comma or a brace was due. §4's integer rule
+named `01` as NON_INTEGER_NUMBER and said nothing about how far a malformed number
+runs, so the silence was in §4 — not §4.1, which is about the bytes a signature
+covers — and that is where the rule went:
+
+- **A number token runs to the first character that cannot occur in one.** The
+  characters that can are the ten ASCII digits, `-`, `+`, `.`, `e` and `E`, and the
+  digits are named as ASCII because `str.isdigit()` is true of digits no number in
+  this format is written with. The token is then compared against `0` or
+  `-?[1-9][0-9]*`, and a token that is not that spelling carries
+  NON_INTEGER_NUMBER whatever part of it is wrong: a fraction, an exponent, a minus
+  with no digits, a second sign (`2026-01-01`), a leading zero, or a run of them.
+- **`MALFORMED` is for the character where a value is due that cannot begin a
+  number** — `+1`, `@`, `.5` — and a number-shaped token out of the 53-bit range is
+  NUMBER_OUT_OF_RANGE.
+- This is deliberately not JSON's grammar, and `01` was already the precedent: JSON
+  calls `01` a syntax error and this format calls it a number the reader would not
+  have written. The case that made the rule necessary is the same family.
+- **The port moved.** Its scanner stopped at the `-`, kept `2026` as its number, and
+  reported a structural error about a character it had itself refused to read as
+  part of the number — its own stopping point, described as a defect of the file.
+  `_number` now scans the class §4 names, and the constant the port carried for the
+  `01` answer is gone, because the spec states the rule now and there is nothing
+  left for a constant to record.
+
+**The case is `created-at-value-opens-a-number`**, added to the differential probe
+with the recorded answer `L0.MANIFEST.PARSE`=NON_INTEGER_NUMBER and 11 checks
+skipped behind the parse. The probe is 27 cases, and every suite passes: corpus 34,
+kit 54, probe 27, sweep 212, `node --test` 148, the port's own suite 114.
+
 ## Unreleased — three cases by hand, and the sweep that decided against a fuzzer
 
 The previous pass ended with a recommendation: three byte-arithmetic mutations no
@@ -15,8 +107,9 @@ Eight cases were added to the container corpus — the three the recommendation
 named, a fourth they led to, and four the measurement produced — and they found six
 differences: five the port's, and one where both implementations had answered the
 same wrong thing. Two more cases moved nobody: one enforces a rule §3.1 already
-stated, and one records a *hole* rather than a difference. §3.1, §3.2, §3.4 and
-§10.1 changed, all 34 cases agree, and `manifest.format` is still `charter/0.1`.
+stated, and one records a *hole* rather than a difference (settled by the next pass —
+see the head of this file). §3.1, §3.2, §3.4 and §10.1 changed, all 34 cases agree,
+and `manifest.format` is still `charter/0.1`.
 
 ### The three cases, and the fourth they found
 
@@ -113,14 +206,18 @@ Three families, all now cases:
 
 And one case moved nobody, because no implementation can be wrong about it:
 **`local-extra-field-unread`** is a charter whose local header carries a four-byte
-extra field, declared honestly, and it comes back VERIFIED from both. §3.4 puts an
+extra field, declared honestly, and it came back VERIFIED from both. §3.4 puts an
 extra field in the list of things every byte of the file is accounted for by,
 nothing reads what is inside it, and §3.6's own rule — *a byte the reader never looks
 at is a byte a forged file can change for free* — is the sentence that argues with
-that. This is the corpus's first recorded hole rather than a difference. It is
-recorded rather than settled because settling it changes the set of files that
-verify, which §14 makes a decision about the format rather than a patch; the case is
-in the corpus so that the decision has an artifact to move.
+that. This was the corpus's first recorded hole rather than a difference, and the
+next pass settled it the way §14 said it had to be settled: §3.6's table now fixes a
+header's extra field and a directory record's comment at zero bytes, `L0.ZIP.METADATA`
+reports them with reason `EXTRA`, and §14 says which voice answers an artifact that
+holds a shape charter/0.1 gives no rule to. **Both implementations moved** when it
+was settled, and neither was wrong before the rule existed. The next pass's section
+at the head of this file, *An extra field is a shape charter/0.1 has no room for*,
+has the rule.
 
 
 This pass asks one question of the repository rather than of the format: **which
@@ -147,17 +244,20 @@ now an artifact with a recorded answer — which is the thing the corpus is for 
 thing a fuzzer cannot produce. A generator whose queue is empty is a tool a reader
 has to trust without evidence.
 
-One disagreement the sweep found is named and not settled, and it is not in the
+One disagreement the sweep found was named and left open here, and it is not in the
 container at all: replace the first byte of `created_at`'s value in `manifest.json`
 with a newline and the bytes `2026-01-01T00:00:00Z` stand where a value belongs. The
-reference reports `L0.MANIFEST.PARSE`=NON_INTEGER_NUMBER ("2026-01-01 is not a
-canonical integer") and the port reports MALFORMED ("an object holds '-' where ','
-or '}' was due"). §4.1 reports `01` as NON_INTEGER_NUMBER and says nothing about
-which characters a malformed number runs to, so this is a silence in §4.1 rather than
-a container question, and its case belongs in the differential probe — whose builder
-refuses to record a case the two disagree about, which is why there is no probe case
-yet. It is recorded here, with the recipe, because half-settling a canonical-JSON
-question at the end of a container pass is how a spec acquires a rule nobody meant.
+reference reported `L0.MANIFEST.PARSE`=NON_INTEGER_NUMBER ("2026-01-01 is not a
+canonical integer") and the port reported MALFORMED ("an object holds '-' where ','
+or '}' was due"). §4's integer rule reports `01` as NON_INTEGER_NUMBER and said
+nothing about which characters a malformed number runs to, so this was a silence in
+§4 rather than a container question, and its case belongs in the differential probe —
+whose builder refused to record a case the two disagreed about, which is why there
+was no probe case here. **The next pass settled it**, and it moved the port: §4 now
+says a number token runs to the first character that cannot occur in one, and the
+probe holds `created-at-value-opens-a-number` with the recorded answer. The section
+at the head of this file, *A number token ends where the format says it ends*, has
+the rule.
 
 ### The first user
 

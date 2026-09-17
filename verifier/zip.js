@@ -232,6 +232,10 @@ function locateEntryData(bytes, entries) {
     if (entry.dataEnd > bytes.length) {
       return { ok: false, reason_code: REASON.MALFORMED, detail: `the data of "${entry.name}" ends past the end of the file (offset ${entry.dataEnd})` };
     }
+    // Kept rather than forgotten: SPEC section 3.6 fixes this field at zero
+    // bytes, and a length nothing compares is a length a forged file can set to
+    // anything. `evaluateMetadata` is the check that reads it.
+    entry.localExtraLength = localExtraLength;
   }
   return { ok: true };
 }
@@ -323,6 +327,15 @@ function describeMadeBy(value) {
  * read one copy and ignored the other would accept a file that says two
  * different things depending on which copy a reader happens to trust.
  *
+ * Two of those fields — a header's extra field and a directory record's comment
+ * — are fixed at *zero bytes* rather than at a value (SPEC section 3.6), and the
+ * word for them is EXTRA rather than MISMATCH because there is no field here for
+ * a value to be in: the format gives the place no meaning at all, which is what
+ * section 3.3 says about a general purpose bit charter/0.1 has no room for.
+ * Reading their lengths is the whole point: those bytes are exactly where a
+ * ZIP64 size, an extended timestamp or a file attribute can be smuggled into a
+ * file whose clock and attributes this check has just refused.
+ *
  * @param {object[]} entries
  * @returns {{ ok: boolean, reason_code: string, detail: string }}
  */
@@ -340,13 +353,19 @@ function evaluateMetadata(entries) {
     if (entry.internalAttributes !== 0 || entry.externalAttributes !== 0) {
       return { ok: false, reason_code: REASON.MISMATCH, detail: `"${entry.name}" declares file attributes (internal ${entry.internalAttributes}, external ${entry.externalAttributes}), which describe a file on a disk rather than a document` };
     }
+    if (entry.localExtraLength !== 0 || entry.extraLengthInCentral !== 0) {
+      return { ok: false, reason_code: REASON.EXTRA, detail: `"${entry.name}" declares an extra field of ${entry.localExtraLength} byte(s) in its local header and ${entry.extraLengthInCentral} byte(s) in the directory record, and charter/0.1 gives that field no meaning: it is where ZIP puts a ZIP64 size, an extended timestamp or a file attribute, in a second spelling no check here reads` };
+    }
+    if (entry.commentLengthInCentral !== 0) {
+      return { ok: false, reason_code: REASON.EXTRA, detail: `"${entry.name}" carries a ${entry.commentLengthInCentral}-byte comment in its directory record, and charter/0.1 gives that field no meaning either` };
+    }
     for (const [what, field] of REPEATED_CLAIMS) {
       if (entry[field] !== entry.local[field]) {
         return { ok: false, reason_code: REASON.MISMATCH, detail: `"${entry.name}" declares ${what} ${entry[field]} in the central directory and ${entry.local[field]} in its local header, and the two copies of a claim have to agree` };
       }
     }
   }
-  return { ok: true, reason_code: REASON.OK, detail: `all ${entries.length} entries declare the version, method, CRC-32, sizes, and DOS stamp the format fixes, twice over` };
+  return { ok: true, reason_code: REASON.OK, detail: `all ${entries.length} entries declare the version, method, CRC-32, sizes, and DOS stamp the format fixes, twice over, and carry no extra field and no comment` };
 }
 
 /**
