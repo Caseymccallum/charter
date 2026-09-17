@@ -4,6 +4,74 @@ Recorded because they are decisions about published behaviour, not internal
 tidying. The format identifier in `manifest.format` changes when section 14 of
 [SPEC.md](SPEC.md) changes; this file records what changed, when, and why.
 
+## Unreleased — the surface other programs use, and a plan for reach
+
+Two things this pass, and they are the same thing seen twice: the format has been built
+for a person at a command line and a person reading `SPEC.md`, and it has never been
+built for **a program that is not this one**. That is the audience every future user
+actually arrives through.
+
+**The package had no entry point.** `import 'charter-cli'` failed with
+`ERR_MODULE_NOT_FOUND` — verified against a real install — because `package.json` had
+neither `main` nor `exports`. An integrator could reach the checks only by importing
+`charter-cli/verifier/verify.js`, which works, is undocumented, and is a promise about
+nothing. Now:
+
+| Entry point | What it is |
+| --- | --- |
+| `charter-cli` | the reading surface: `verify`, the three entry names, `FORMAT`, `ALGORITHM`, the five vocabularies, `CAVEATS`, `LIMITS`, `RefusalError`, `isReasonCode` |
+| `charter-cli/producer` | the writing surface: `seal`, `edit`, `loadKey`, `generateKeyPair`, `openKeyFile`, `sealKeyFile`, `isKeyFile`, `readCharter`, `readCharterParts`, `citationItem` and the key-file constants |
+| `charter-cli/verifier/*` | the modules that walk a container, reachable on purpose |
+
+**The split is the project's own boundary, not a packaging convenience.** The reading
+surface reaches no runtime module, reads no file and uses no clock, because everything
+behind it is `verifier/**` and that directory may not — so it runs unchanged in a browser,
+a worker or Deno. The writing surface reaches `node:crypto`, because it signs and draws
+random bytes. `test/api.test.js` walks both import closures and holds that difference, so
+"browser-safe" is a check rather than a sentence. `cli/` is not exported at all: the
+command line is a program, not an import.
+
+**The surface is documented once, in the README, and the test reads it there.** There is
+no list of export names in `test/api.test.js`; it reads the table out of `README.md` and
+compares it with the modules in both directions. Proven by mutation: adding an export the
+README does not document fails the run, and removing one it does fails the run.
+
+**A property of the API worth writing down: `verify` resolves, it does not throw.** Four
+bytes of nothing come back `BROKEN` with `L0.ZIP.READABLE` failed, so a caller looping
+over a directory branches on `result.verdict` and never wraps a call in a `try`. That is
+the same shape `SPEC.md` §12.1 already fixes for `--json`, and it is now held for the
+importable form too.
+
+**`docs/reach.md` is the plan, and it answers a question directly.** Should another
+product's interface be forked, or a framework adopted for ours? No — and the reason is
+the property this project would spend: the editor's three enforced promises (no import
+outside `verifier/**`, no network request, no build step, `dependencies: {}`) are what make
+"a stranger can check without trusting the author, a server or a clock" true. But the
+deeper answer is that **our UI was never the reach story**: a format spreads through other
+people's interfaces, so the plan is one checkable demonstration plus integrations — a VS
+Code extension, an Obsidian plugin, a git hook, an ingest queue.
+
+**And the highest-leverage item in that plan is missing, measured rather than guessed.** A
+format nobody can identify does not get catalogued. Across all 117 artifacts this project
+has, **116 begin `PK\x03\x04` and 113 carry `manifest.json` at byte 30**, and the four
+misses are exactly the four *deliberately* mutated to move the entry name or its order. So
+the signature identifies every conforming artifact and nothing else. The `file(1)` snippet,
+the media type and the Siegfried/PRONOM proposal are the next pass, not this one.
+
+**One more mistake of the same shape as the last two, recorded because it cost real
+work.** The mutation proofs for the new test were issued as two parallel commands writing
+`index.js`, and the race left the mutation *in place*: the second command read the mutated
+file as its backup and "restored" the mutation. The file was left with a syntax error and
+a literal `\n`. It was caught by reading the file rather than trusting the run, and
+repaired. This is the fourth time in this project that two commands writing one file in
+one batch has produced a false result — after `package.json`, the demo scripts, and now
+this. The rule that follows is mechanical: **a mutation proof and its restore go in one
+command, and nothing else in the batch touches that file.**
+
+Verified: 220 tests with 0 failures. The surface was proved from outside the repository by
+installing the package into a throwaway prefix and importing each entry point, including
+that `charter-cli/cli/charter.js` is refused with `ERR_PACKAGE_PATH_NOT_EXPORTED`.
+
 ## Unreleased — the key at rest: a key file behind a passphrase
 
 Phase 2 of the roadmap. `keygen` wrote one thing — an unencrypted PKCS#8 PEM — and its

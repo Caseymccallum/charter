@@ -149,6 +149,24 @@ argument that already put a ZIP writer in `verifier/zip-write.js`.
   stored salt plus a known-plaintext verification token as an offline brute-force
   oracle whose zero-knowledge claim is "contingent on passphrase strength".
 
+## Phase 3 — the audience, and the surface other programs use
+
+**The surface other programs use — done.** `package.json` had no entry point at all: a
+bare `import 'charter-cli'` failed (measured against a real install), so the only way in
+was to deep-import `charter-cli/verifier/verify.js`, which is a promise about nothing.
+Now there are two documented entry points — `charter-cli` for reading, pure and
+browser-safe, and `charter-cli/producer` for writing, Node-only — and
+`test/api.test.js` holds both to the table in `README.md`, reading the table from there
+rather than keeping a copy.
+
+That is the enabling work for everything below it, and it is why this came before the
+integrations rather than after.
+
+**The plan for the rest is `docs/reach.md`**, which answers two questions this file
+should not answer twice. Whether to fork another product's interface: **no**, and the
+reason is the property it would spend. What to do instead: **integrations**, because a
+format's reach comes from other people's interfaces and not from ours.
+
 ## Phase 3 — the audience, and only after 1 and 2
 
 For the archives and preservation audience — the one with a real need for a portable,

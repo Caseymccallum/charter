@@ -606,7 +606,7 @@ test('a publish would ship the code and not the repository', { timeout: 180000 }
   assert.ok(paths.includes('cli/charter.js'), 'the command the package installs is in what a publish ships');
 
   const allowed = /^(cli|producer|verifier)\//;
-  const added = ['SPEC.md', 'README.md', 'LICENSE', 'package.json'];
+  const added = ['SPEC.md', 'README.md', 'LICENSE', 'package.json', 'index.js'];
   const foreign = paths.filter((path) => !allowed.test(path) && !added.includes(path));
   assert.deepEqual(
     foreign,
