@@ -477,9 +477,11 @@ def decompress(entry: Entry) -> bytes:
     The two ceilings are compared here, before the work they bound, which is what
     SPEC section 3.7 asks for: an entry's declared size is compared before it is
     inflated, and the check that would read the bytes is the one that reports
-    LIMIT_EXCEEDED. The container's own walk deliberately does not apply them, so
-    that a declared size larger than the bytes in the file stays the legibility
-    gate's problem (the bytes are not there) rather than the ceiling's.
+    LIMIT_EXCEEDED. The same section also stops the inflation itself at the
+    ceiling, which is `_inflated`'s half of the rule. The container's own walk
+    deliberately does not apply either, so that a declared size larger than the
+    bytes in the file stays the legibility gate's problem (the bytes are not
+    there) rather than the ceiling's.
     """
     if entry.compressed_size > limits.ENTRY_COMPRESSED_BYTES:
         raise Refusal(
@@ -496,16 +498,52 @@ def decompress(entry: Entry) -> bytes:
     if entry.method == 0:
         return entry.data
     if entry.method == 8:
-        try:
-            return zlib.decompress(entry.data, -zlib.MAX_WBITS)
-        except zlib.error as problem:
-            raise Refusal(
-                DECODE_ERROR,
-                f"{entry.name_text} is declared raw-deflated and does not inflate "
-                f"({problem})",
-            ) from None
+        return _inflated(entry)
     raise Refusal(
         UNSUPPORTED_FEATURE,
         f"{entry.name_text} declares compression method {entry.method}, and "
         "charter/0.1 defines 0 (stored) and 8 (raw deflate)",
     )
+
+
+def _inflated(entry: Entry) -> bytes:
+    """One raw-deflate stream, inflated with a stop at the ceiling.
+
+    `zlib.decompress` has no bound. It inflates what it is handed, so a stream
+    that is 200 kB of compressed zero bytes and expands to 200 MB is 200 MB of
+    memory spent answering a question about a document nobody sent — and the
+    answer, `L0.ZIP.SIZES`=MISMATCH, is a verdict about a file this verifier
+    should have refused to work on. SPEC section 3.7 enforces an entry's ceiling
+    while the work is done as well as before it, so the decoder is given a length
+    one byte past the ceiling and asked whether it ran out of room.
+
+    Three endings, and they are three different statements: the stream does not
+    expand (DECODE_ERROR, the artifact's problem), it expands past the ceiling
+    (LIMIT_EXCEEDED, a size this verifier refuses to work on, whatever the header
+    declares), or it ends inside the bytes it is made of (DECODE_ERROR again —
+    `decompressobj` reports a truncated stream by leaving `eof` false rather than
+    by raising, where `zlib.decompress` raised).
+    """
+    expander = zlib.decompressobj(-zlib.MAX_WBITS)
+    try:
+        data = expander.decompress(entry.data, limits.ENTRY_UNCOMPRESSED_BYTES + 1)
+    except zlib.error as problem:
+        raise Refusal(
+            DECODE_ERROR,
+            f"{entry.name_text} is declared raw-deflated and does not inflate "
+            f"({problem})",
+        ) from None
+    if len(data) > limits.ENTRY_UNCOMPRESSED_BYTES or expander.unconsumed_tail:
+        raise Refusal(
+            LIMIT_EXCEEDED,
+            f"{entry.name_text} expands past the ceiling of "
+            f"{limits.ENTRY_UNCOMPRESSED_BYTES} byte(s), however many bytes its "
+            "header declares",
+        )
+    if not expander.eof:
+        raise Refusal(
+            DECODE_ERROR,
+            f"{entry.name_text} is declared raw-deflated and does not inflate "
+            "(the stream ends before the bytes it is made of do)",
+        )
+    return data

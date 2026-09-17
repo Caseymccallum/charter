@@ -1,7 +1,7 @@
 """Helpers for the tests: the committed fixture, and synthetic artifacts.
 
 Nothing here is part of the verifier. The synthetic writer exists because a few
-rules cannot be exercised by the 54 committed artifacts — a log line ending in
+rules cannot be exercised by the 56 committed artifacts — a log line ending in
 CRLF, a manifest with a leading-zero integer, an escape spelling the spec
 mentions and no fixture carries — and a rule nobody has run is a rule nobody has
 checked.

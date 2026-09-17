@@ -27,6 +27,7 @@
     "editor:test": "node --test test/editor.test.js",
     "verify": "node cli/charter.js verify",
     "seal": "node cli/charter.js seal",
+    "edit": "node cli/charter.js edit",
     "inspect": "node cli/charter.js inspect",
     "cite": "node cli/charter.js cite",
     "keygen": "node cli/charter.js keygen",

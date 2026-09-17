@@ -1,11 +1,11 @@
 """The container corpus: hand-mutated ZIP structure, asked of both implementations.
 
-The conformance kit holds 54 artifacts and the probe holds 23 more, and between
+The conformance kit holds 56 artifacts and the probe holds 27 more, and between
 them they ask about every *field* a document has. Neither reaches the container's
 byte arithmetic. A field-level case can say "this digest is uppercase"; it cannot
 say "this entry's declared compressed size is one byte more than the bytes after
 it", because that is not a field of a document but an offset in a file, and two
-ZIP walkers that agree on 54 fixtures and 212 field-level cases can still disagree
+ZIP walkers that agree on 56 fixtures and 212 field-level cases can still disagree
 about it. That is what this corpus exists to find.
 
 # A corpus, not a fuzzer

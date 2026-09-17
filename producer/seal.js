@@ -190,11 +190,13 @@ export async function seal(request, options = {}) {
  * own reason codes: bytes that are not UTF-8, and a byte order mark. The rule is
  * the same in both directions — the bytes of the file are the content — so a
  * producer that wrote either would be writing a file its own verifier refuses.
+ * `seal` writes a document and `edit` writes a later revision of one, so both
+ * ask this before writing anything, and neither keeps its own copy of the rule.
  *
  * @param {Uint8Array} content
  * @returns {void}
  */
-function checkContent(content) {
+export function checkContent(content) {
   if (!(content instanceof Uint8Array)) {
     refuse(REASON.MALFORMED, `content.md is bytes, and this call was handed ${typeof content}`);
   }
@@ -230,25 +232,42 @@ function checkContent(content) {
  * @param {Uint8Array} content
  * @returns {{ title: string, origin: string }}
  */
-function decideTitle(request, content) {
-  if (request.title !== undefined) {
-    if (typeof request.title !== 'string' || request.title.trim() === '') {
-      refuse(REASON.MALFORMED, 'the title stated for this seal is empty, and manifest.title is a non-empty string', 'title');
-    }
-    return { title: request.title.trim(), origin: TITLE_ORIGINS.STATED };
+export function statedTitle(title) {
+  if (title === undefined) return undefined;
+  if (typeof title !== 'string' || title.trim() === '') {
+    refuse(REASON.MALFORMED, 'the title stated here is empty, and manifest.title is a non-empty string', 'title');
   }
+  return title.trim();
+}
+
+/**
+ * The title the manifest will carry, and where it came from.
+ *
+ * @param {object} request
+ * @param {Uint8Array} content
+ * @returns {{ title: string, origin: string }}
+ */
+function decideTitle(request, content) {
+  const stated = statedTitle(request.title);
+  if (stated !== undefined) return { title: stated, origin: TITLE_ORIGINS.STATED };
   const derived = deriveTitle(content);
   if (derived !== null) return { title: derived.title, origin: derived.origin };
   return { title: titleFromPath(request.content_name ?? ''), origin: TITLE_ORIGINS.FILE_NAME };
 }
 
 /**
- * The time the sealed file will state, or the value that means no time.
+ * The time the written file will state, or the value that means no time.
+ *
+ * Shared by `seal` and `edit`: both write a timestamp, both refuse a stated one
+ * that is not the form the format fixes, and both write the same instant when
+ * none was stated. An edit is free to state a time earlier than the entry before
+ * it — section 11 says nothing in an artifact witnesses time — so this decides
+ * the form of a time and never its relation to another one.
  *
  * @param {string | undefined} createdAt
  * @returns {{ created_at: string, stated: boolean }}
  */
-function decideTime(createdAt) {
+export function decideTime(createdAt) {
   if (createdAt === undefined) return { created_at: NO_TIME_STATED, stated: false };
   if (typeof createdAt !== 'string' || !isIsoUtcSecond(createdAt)) {
     refuse(
@@ -261,25 +280,36 @@ function decideTime(createdAt) {
 }
 
 /**
+ * The author name an entry will carry.
+ *
+ * The name is a claim the tool was handed, and the fallback is the claim that
+ * nothing was handed: a seal writes `NO_NAME_STATED`, and an edit writes the
+ * name the artifact already carries, because a charter/0.1 file has exactly one
+ * author name and a second one invented here would be a name nobody stated.
+ *
  * @param {string | undefined} name
+ * @param {string} [fallback]
  * @returns {string}
  */
-function decideName(name) {
-  if (name === undefined) return NO_NAME_STATED;
+export function decideName(name, fallback = NO_NAME_STATED) {
+  if (name === undefined) return fallback;
   if (typeof name !== 'string' || name.trim() === '') {
-    refuse(REASON.MALFORMED, 'the author name stated for this seal is empty, and the manifest requires a non-empty name', 'author');
+    refuse(REASON.MALFORMED, 'the author name stated here is empty, and a name is a non-empty string', 'author');
   }
   return name.trim();
 }
 
 /**
+ * The summary an entry will carry.
+ *
  * @param {string | undefined} summary
+ * @param {string} [fallback]
  * @returns {string}
  */
-function decideSummary(summary) {
-  if (summary === undefined) return DEFAULT_SUMMARY;
+export function decideSummary(summary, fallback = DEFAULT_SUMMARY) {
+  if (summary === undefined) return fallback;
   if (typeof summary !== 'string' || summary.trim() === '') {
-    refuse(REASON.MALFORMED, 'the summary stated for this seal is empty, and a provenance entry requires a non-empty summary', 'summary');
+    refuse(REASON.MALFORMED, 'the summary stated here is empty, and a provenance entry requires a non-empty summary', 'summary');
   }
   return summary;
 }

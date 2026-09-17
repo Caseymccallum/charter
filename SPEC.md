@@ -325,6 +325,16 @@ checked. The check that reports a ceiling is the one whose work it bounds, so
 `L0.ZIP.READABLE` carries the whole file's, `L0.ZIP.ENTRY_DATA` an entry's, and
 `L0.MANIFEST.PARSE` a document's.
 
+One of these ceilings is also enforced *while* the work it bounds is done,
+because a declared size is a claim and a compressed stream is not. An entry
+whose bytes keep expanding past 64 MiB is stopped there and refused with
+`LIMIT_EXCEEDED` — by `L0.ZIP.ENTRY_DATA`, the same check and the same code the
+comparison above carries — however few bytes its header declares. A reader that
+compares a declared size and then inflates without a bound has done the half of
+this section that the file told it about; the stop is the half for the file that
+declares eight bytes and expands past the ceiling anyway, and the two halves are
+one ceiling.
+
 A size that is larger than the bytes the file actually holds is not a ceiling and
 is not measured here: the bytes it names are not in the file, which is §3.1's
 question, and the gate answers it before any ceiling is compared. `LIMIT_EXCEEDED`
@@ -879,7 +889,7 @@ call a bug rather than a judgement.
 | `L0.ZIP.LAYOUT` | every byte is accounted for, in file order | the byte ranges, and the three facts of the end record that describe them | `corpus` `local-extra-entry-uncounted` (a gap), `entry-central-record-twice` (an overlap), `eocd-cd-size-wrong`, `entry-extra-len-off-by-one` (a range past the directory), `central-extra-len-past-eof` |
 | `L0.ZIP.METADATA` | no host, disk, clock, attributes, extra field or comment; both copies of every other claim agree | the container's metadata fields — the ones the format fixes at one value, and the two it fixes at none, plus every repeated claim but the flag word, which the gate refuses a disagreement about | `fixture` `stamped-by-a-clock`; `corpus` `local-compressed-size-off-by-one`, `local-crc-zeroed`, `entry-version-needed-local-only`, `local-extra-field-unread` |
 | `L0.ZIP.ENTRY_SET` | exactly the three required entries | which names are in the archive | `fixture` `missing-entry`, `duplicate-entry`, `extra-entry` |
-| `L0.ZIP.ENTRY_DATA` | stored or raw-deflated, and it decodes | each entry's method, the bytes it decodes to, and the entry's two ceilings | `fixture` `unsupported-method`, `stored-declared-deflated`; `corpus` `entry-uncompressed-size-above-ceiling` |
+| `L0.ZIP.ENTRY_DATA` | stored or raw-deflated, and it decodes | each entry's method, the bytes it decodes to, and the entry's two ceilings | `fixture` `unsupported-method`, `stored-declared-deflated`, `entry-expands-past-ceiling`; `corpus` `entry-uncompressed-size-above-ceiling` |
 | `L0.ZIP.SIZES` | the declared uncompressed size is the real one | the declared sizes, as the directory states them, for every entry that can be read | `fixture` `wrong-declared-size`; `corpus` `unsupported-method-beside-a-wrong-size` (the measurement a check keeps when another entry cannot be read) |
 | `L0.ZIP.CRC32` | the declared CRC-32 is the real one | the declared checksums, as the directory states them | `fixture` `wrong-declared-crc` |
 | `L0.FORMAT.IDENTIFIER` | `manifest.format` is exactly `"charter/0.1"` | `format`: absent is MISSING, not a string is MALFORMED, any other string — the empty one included — is a version this verifier does not implement | `fixture` `unsupported-format`; `probe` `manifest-format-missing`, `manifest-format-not-a-string`, `manifest-empty-format` |
@@ -955,8 +965,8 @@ The totals are **25 rows settled by a kit fixture, 16 by a probe case, 7 by a
 corpus case, and none by prose alone**. Those numbers are larger than 30 because
 several rows have more than one face: `L0.ZIP.READABLE` has a file that is not a
 container at all and a container that is one disk of a set, `L0.ZIP.ENTRY_DATA`
-has a method nobody implements and a size above a ceiling, and each of those rows
-names a case for each face it has.
+has a method nobody implements, a size above a ceiling, and a stream that expands
+past one, and each of those rows names a case for each face it has.
 
 No row is `prose`, and the reason is the rule this column is made of: a
 requirement that no single input can demonstrate is not a requirement about a
@@ -1203,7 +1213,7 @@ allowed to look at the world outside a byte array.
   different claims and a reader needs to know which one they are looking at.
 
 ```
-node vectors/run.js            # replay the kit: 54 artifacts, 54 recorded answers
+node vectors/run.js            # replay the kit: 56 artifacts, 56 recorded answers
 node vectors/build.js          # rebuild the artifacts (the author's program)
 node vectors/build.js --check  # rebuild in memory, and refuse if the record is stale
 ```
@@ -1407,9 +1417,108 @@ not valid UTF-8 (`DECODE_ERROR`) or that begins with a byte order mark
 that holds no key (`MALFORMED`), a named file that is absent (`MISSING`), an
 output path that is already taken (`EXTRA`), a value above a limit of section 3.7
 (`LIMIT_EXCEEDED`), and a stated time that is not the form section 5 fixes
-(`MALFORMED`). A producer with a private set of failure names would be a second
+(`MALFORMED`). `edit` refuses all of those that apply to what it writes, and the
+artifact it was handed as well: one it cannot read, with the reason code the
+reader gave for that file rather than a name invented here; one whose log holds no
+line to commit to (`MISSING`); one that declares a format this build does not
+implement (`UNSUPPORTED_FEATURE`); one whose manifest holds a field charter/0.1
+gives no rule to (`UNKNOWN_FIELD`); and one whose key is not the key named on the
+command line (`MISMATCH`). Every one of those is a reason a reader would give
+about the same file, which is the point: a caller branches on one vocabulary and
+not two. A producer with a private set of failure names would be a second
 vocabulary for one format, and a caller who had to learn both would eventually
 confuse them.
+
+### 15.6 A later entry
+
+`seal` begins a history and `edit` writes the next entry in one. The entry it
+writes is the `edit` action section 7 defines, and section 9 fixes all of it
+except the parts below — which are producer rules precisely because nothing in an
+artifact can check them:
+
+- **`parent` is the digest of the line before it as that line stands in the
+  file** — the canonical JSON of that entry plus the one LF that closes it —
+  which is the same value the link check recomputes. Every earlier line of the
+  log is copied into the new file byte for byte: an edit appends a line and does
+  not reflow, reorder, or re-sign one, so a line written by something else is
+  still that thing's bytes.
+- **`content_sha256` is the new document's digest**, and the manifest's
+  `content.sha256` moves with it. What the file carries afterwards is the new
+  revision of `content.md`; the bytes of every earlier revision are gone, which
+  section 11 states as a limitation and this subsection is where a writer is told
+  not to pretend otherwise.
+- **The manifest's other fields are the ones the artifact already carries.** An
+  edit does not re-declare the author name, the creation time, the title, or the
+  key unless the person editing states them: a stated title replaces the title,
+  and nothing else does.
+- **The key that signs is the key the artifact carries.** Section 8 says every
+  entry names that one key, so an edit signed by any other key would be an entry
+  a reader can only reject. The producer refuses it (`MISMATCH`) rather than
+  writing it, because it knows the name of the key it holds.
+- **A stated time is used, and with none stated the entry carries the no-time
+  instant**: `1980-01-01T00:00:00Z`, the value `seal` writes when it is given no
+  time. That instant can precede the entry before it, and that is not a
+  contradiction to be repaired — section 11 says nothing in an artifact witnesses
+  time, and `entry-with-earlier-timestamp` is a case the kit requires to come
+  back `VERIFIED`. **A producer must not refuse an edit for stating an earlier
+  time than its parent's**, because that is a rule the reader does not have, and a
+  writer holding a rule the reader lacks would refuse what the format accepts.
+- **A summary nobody stated is a summary that says so.** A seal's default
+  describes what a seal is — "Initial draft." — because that is the fact. An edit
+  records the absence, because a sentence this producer invented would be a
+  sentence in a signed record that no signer wrote.
+- **The name a later entry carries is the name stated for it**, and with none
+  stated the name the artifact already carries. Only the first entry is held to
+  the manifest's name, so a later entry may name someone else; what it may not do
+  is name a key the file does not carry.
+
+An edit requires an artifact it can **read**, not one it can *believe*: a
+container it can walk, a manifest whose field shape it can read, a log with at
+least one line and its final LF, and a document entry. It does not require the
+file to verify, and it runs no verdict. The line it writes commits to the bytes
+that are there, so an honest account of a file somebody else wrote does not become
+dishonest because that file was already broken; `verify` is the command that
+answers whether the file was true, and a producer that answered it too would be a
+second verifier.
+
+**The entries are copied and the container is written again.** An edit carries
+forward the log and the document it was handed, and the manifest's values; the
+container around them is this producer's, in the shape section 3 fixes, because
+those fields are values the format fixes rather than claims a signer made. So a
+file whose container a reader refuses — a feature level its two copies disagree
+about, a metadata field that is not the value the table names — can still be read
+for its entries, and what an edit writes around them has the container a
+conforming writer writes. Nothing is laundered by that: the entries, their
+signatures, and the links between them are the bytes the file already held, and a
+producer does not repair a *claim*. A history with a stale signature stays a
+history with a stale signature, which is the half of this rule that matters.
+
+Three shapes it refuses rather than quietly repair:
+
+- **a manifest field charter/0.1 gives no rule to** (`UNKNOWN_FIELD`). Writing the
+  file back would drop a field it carried, and dropping a claim is not the same
+  deed as never having made it.
+- **an entry the format has no room for, or one name carried twice** (`EXTRA`,
+  `DUPLICATE` — the codes the check that owns the entry set reports for the same
+  two shapes). An edit copies the entries it read, so a fourth entry would have to
+  be dropped and a repeated name chosen between; neither is a decision a writer
+  may make silently.
+- **a `format` this build does not implement** (`UNSUPPORTED_FEATURE`). Section 14
+  says a verifier refuses what it does not implement, and a producer that extended
+  such a file would be writing one it cannot check.
+
+None of this changes a version. Section 14's list is about the artifact, the
+verdict, and the limits; a verb for an action section 7 already defines adds
+nothing to any of them, and a chain of many entries is what sections 5 through 9
+always described. The module is `producer/edit.js`, and like `seal` it writes
+through the reader's own serializer and the reader's own container writer.
+
+An edit is deterministic in the same way a seal is (section 15.2): the same
+artifact, document, key, and stated arguments produce the same bytes, on every run
+and on every machine, because nothing here reads a clock, a file, or a random
+source — and a later entry's `parent` is a function of the artifact it was given
+rather than of when it was run.
+
 
 ## 16. A second reading
 
@@ -1434,6 +1543,6 @@ of the JSON verdict (§12.1).
 
 The kit is what both readings answer to. `vectors/expected.json` records the
 answers, `vectors/run.js` replays them through the reference, and
-`implementations/python` replays them through the port; 54 fixtures, the same
+`implementations/python` replays them through the port; 56 fixtures, the same
 verdicts, the same reason codes, the same exit codes.
 

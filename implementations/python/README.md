@@ -76,20 +76,20 @@ have been a place where the two readings were the same reading:
 
 ## The kit result
 
-**54 fixtures, 54 matched exactly.** Verdict, exit code, failing checks with
+**56 fixtures, 56 matched exactly.** Verdict, exit code, failing checks with
 their reason codes, unsupported checks with their reason codes, and the count of
 checks that were never reached — every field of every recorded answer, and no
 mismatch to report.
 
 ```
-54 case(s) replayed, and every verdict is the one the record states; 54 matched exactly.
+56 case(s) replayed, and every verdict is the one the record states; 56 matched exactly.
 no file under verifier/** was opened.
 ```
 
 Beyond the record: the `--json` shape was compared key for key against the
-reference CLI's output for all 54 fixtures (same keys, same check ids in the same
+reference CLI's output for all 56 fixtures (same keys, same check ids in the same
 order, same statuses, same reason codes, same exit codes, same `summary` counts,
-same `artifact` or `null`), and 20 hand-built artifacts that the kit does not
+same `artifact` or `null`), and 27 hand-built artifacts that the kit does not
 cover were put to both implementations. That last pass is where the findings came
 from: it started at nine disagreements and ended at zero, and the spec changes
 below are what closed them. Committing the probe (`vectors/probe/`) then found a
@@ -219,12 +219,26 @@ is the check itself into that check's FAIL or UNSUPPORTED, and everything else
 into SKIP. Every "which check is skipped here?" question then has one answer, and
 it is computed rather than listed. §10.1 is that mechanism written down.
 
-**The second hardest thing was the artifacts the kit does not contain.** 54
-fixtures pin 54 answers, and none of them contains an uppercase digest, a padded
+**The second hardest thing was the artifacts the kit does not contain.** 56
+fixtures pin 56 answers, and none of them contains an uppercase digest, a padded
 signature, a `format` field that is missing, or a log line that is not an object.
 The verifier had to be right about those too, because a reader will meet them
 first, and the only way to find out what "right" was was to build them by hand
 and ask both implementations.
+
+The same absence cost this port a rule it had read. §3.7's table says an entry's
+uncompressed ceiling is where **inflation stops**, and the reference stops there;
+`decompress` inflated with `zlib.decompress`, which has no bound, so an entry
+declaring 8 bytes and expanding to 200 MB was answered *about* rather than
+refused — 200 MB of memory spent by the reader whose ceiling exists to bound it,
+and a verdict of `L0.ZIP.SIZES`=MISMATCH about a document nobody sent. Nothing in
+the kit, the probe or the sweep could say so, because every ceiling artifact
+anywhere *declares* the number and the stop is the half a declaration cannot
+satisfy. The case that says so now is the kit's `entry-expands-past-ceiling`, and
+`_inflated` decodes through a `decompressobj` given a length one byte past the
+ceiling. It is the one finding in this directory that no suite could have
+produced, which is the argument for building the artifacts the kit does not
+contain rather than only replaying the ones it does.
 
 ## The brief, and where it was wrong
 
@@ -244,7 +258,7 @@ JavaScript problem, not a Python one.
   `bool` before it answers `int`.
 * **Key id.** Full-length `"ed25519:" + 64 lowercase hex`, no truncation, checked
   against the fixture's recorded key id before anything else was built.
-* **ZIP method.** Confirmed: the entries in the 54 fixtures are stored except in
+* **ZIP method.** Confirmed: the entries in the 56 fixtures are stored except in
   `valid-deflate` and `unsupported-method`, and a reader that assumed either
   method fails fixtures either way.
 * **Line endings.** Confirmed as the trap it is named to be, with one addition:
@@ -255,11 +269,18 @@ JavaScript problem, not a Python one.
 
 ## Were the artifacts sufficient on their own?
 
-For the 54 fixtures, **yes**: `SPEC.md`, `vectors/expected.json` and
-`vectors/out/*.charter` are enough to produce all 54 recorded answers, and this
+For the 56 fixtures, **yes**: `SPEC.md`, `vectors/expected.json` and
+`vectors/out/*.charter` are enough to produce all 56 recorded answers, and this
 port was written that way — the first run of the replay scored 54 of 54. Nothing
 in `verifier/**` was opened to understand a fixture, and the replay fails if one
 ever is.
+
+One of the 56 is not from the kit's builder at all: `produced-two-entries` was
+written by `charter seal` and `charter edit` (SPEC.md 15.6), the two verbs this
+project ships, so it is the one fixture that existed after this port was written
+and that no reader of this README could have seen while writing it. The replay
+still answers it, because a history of two entries is a history of two entries
+whichever half of the project wrote it.
 
 Three things the brief asks for are **not in the spec and are not derivable from
 the fixtures**, and for those the reference CLI was run as a black box — `--json`,
@@ -288,7 +309,7 @@ Three passes, in increasing severity:
    count — the same five things `vectors/run.js` compares, in a program written
    separately. It also compares each file's recorded size and SHA-256 first, so
    "this file has been swapped" and "this verdict is wrong" stay two claims.
-2. **The interface.** For each of the 54 fixtures, the reference CLI's `--json`
+2. **The interface.** For each of the 56 fixtures, the reference CLI's `--json`
    was read and its shape compared to this verifier's, key for key and check id
    for check id: 0 differences.
 3. **Artifacts neither kit contains.** `vectors/probe/` holds 27 artifacts built
@@ -349,7 +370,7 @@ disagreement. What it settled lives in `tests/test_spec_gaps.py`, in
 finding tool, not a fixture — nothing it builds is committed.
 
 A fifth pass, and the one that went a level below both of those: **the container
-corpus.** The kit's 54 artifacts and the probe's 27 cases are JSON documents
+corpus.** The kit's 56 artifacts and the probe's 27 cases are JSON documents
 inside a container, and every check they exercise reads a *field*. None of them
 can reach the container's byte arithmetic, because "this entry's declared
 compressed size is one byte more than the bytes after it" is not a field of a

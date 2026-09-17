@@ -120,14 +120,18 @@ id from `deriveKeyId()`, and Ed25519 signatures are deterministic.
   of its own, no ZIP of its own, and no Ed25519 of its own.
 - No Markdown parsing: the content is shown as text in a `<pre>`, which is enough
   for the claim to be visible.
-- No history: charter/0.1 has no verb for appending an entry yet, and neither does
-  the command line.
+- **No history.** Sealing is the only thing this page does: it writes the first
+  entry of a history, and the command line's `charter edit` writes the next one
+  (SPEC.md 15.6). A page that appended an entry would need the artifact being
+  extended, the key it carries, and a copy of the log's bytes rather than its
+  values — all of which this page could do and none of which it does today,
+  because a demonstration that shows the format's claim is not a second producer.
 
 ## The tests
 
 `test/editor.test.js` asserts the rules above statically, and — when this machine
 has Chrome, Edge, Chromium, or a browser named by `CHARTER_BROWSER` — runs the
-page in a headless one and asks it for all 54 artifacts in the conformance kit,
+page in a headless one and asks it for all 56 artifacts in the conformance kit,
 comparing every check status with the reference's, driving the read pane on four
 fixtures, sealing a document and comparing the bytes with the command line's, and
 reading the browser's own download back with the verifier. Without a browser it

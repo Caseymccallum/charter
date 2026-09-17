@@ -33,7 +33,7 @@ class KitTest(unittest.TestCase):
             cls.cases, cls.matched, cls.problems = kit.replay(VECTORS)
 
     def test_the_record_holds_the_fixtures_it_says_it_holds(self) -> None:
-        self.assertEqual(len(self.cases), 54)
+        self.assertEqual(len(self.cases), 56)
         for case in self.cases:
             with self.subTest(case["name"]):
                 data = (VECTORS / case["file"]).read_bytes()
@@ -42,11 +42,11 @@ class KitTest(unittest.TestCase):
 
     def test_every_verdict_is_the_one_the_record_states(self) -> None:
         self.assertEqual(self.problems, [])
-        self.assertEqual(self.matched, 54)
+        self.assertEqual(self.matched, 56)
 
     def test_the_replay_reported_one_verdict_for_every_case(self) -> None:
         lines = [line for line in self.report.getvalue().splitlines() if line.strip()]
-        self.assertEqual(len(lines), 54)
+        self.assertEqual(len(lines), 56)
 
     def test_no_file_under_verifier_was_opened(self) -> None:
         self.assertEqual(kit._OPENED, [], "the port needed to read the reference implementation")

@@ -28,6 +28,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { LATER_ACTION, NO_SUMMARY_STATED, edit } from '../producer/edit.js';
 import { ProducerError, refuse } from '../producer/errors.js';
 import { loadKey, signBytes } from '../producer/key.js';
 import { readCharter } from '../producer/read.js';
@@ -35,9 +36,10 @@ import { FIRST_ACTION, seal } from '../producer/seal.js';
 import { deriveTitle, titleFromPath, TITLE_ORIGINS } from '../producer/title.js';
 import { decodeBase64Url } from '../verifier/base64url.js';
 import { encodeBase64Url } from '../verifier/base64url-write.js';
-import { utf8Encode } from '../verifier/bytes.js';
+import { concat, toHex, utf8Encode } from '../verifier/bytes.js';
 import { parseJsonBytes } from '../verifier/canonical.js';
-import { canonicalDocument, signingInput } from '../verifier/canonical-write.js';
+import { canonicalDocument, LF, signingInput } from '../verifier/canonical-write.js';
+import { sha256 } from '../verifier/digest.js';
 import { LIMITS } from '../verifier/limits.js';
 import { ACTIONS, parseLine, splitLines } from '../verifier/provenance.js';
 import { RefusalError } from '../verifier/refuse.js';
@@ -67,6 +69,18 @@ const KEY_TEXT = readFileSync(KEY_PATH, 'utf8');
 
 /** The one instant every seal in this file states, so that bytes are comparable. */
 const AT = '2026-01-01T00:00:00Z';
+
+/**
+ * The second revision of the same document: what a later entry writes.
+ *
+ * It is the same document with one section added, because that is what an edit
+ * is. The file carries the new revision, and the digest of the old one survives
+ * only inside the entry that named it.
+ */
+const SECOND_MARKDOWN =
+  '# Charter: a sealed draft\n\nA document that carries its own history.\n\n## Purpose\n\nOne file holds a document and the account of how it got there.\n\n## History\n\nA second entry says what changed.\n';
+const SECOND_PATH = join(WORK, 'draft-2.md');
+writeFileSync(SECOND_PATH, Buffer.from(SECOND_MARKDOWN, 'utf8'));
 
 /**
  * @param {string[]} args
@@ -660,7 +674,7 @@ test('the producer directory holds the modules it says it holds', () => {
   // because they are not in this directory anymore: both moved to `verifier/**`
   // when a second writer — the editor, which runs in a page — had to import
   // them, and a directory a browser may not import cannot hold shared code.
-  for (const module of ['seal.js', 'read.js', 'key.js', 'cite.js']) {
+  for (const module of ['seal.js', 'edit.js', 'read.js', 'key.js', 'cite.js']) {
     const text = readFileSync(join(PRODUCER_DIR, module), 'utf8');
     assert.ok(text.includes("from '../verifier/"), `${module} must take the format from verifier/**, not restate it`);
   }
@@ -768,4 +782,384 @@ test('the producer refuses to write an artifact the verifier would refuse to rea
     'an entry above the declared ceiling is refused rather than written',
   );
   assert.ok(new ProducerError(REASON.MISSING, 'a detail') instanceof RefusalError, 'the producer adds a name to the shared refusal rather than replacing it');
+});
+
+/**
+ * The second half of the producer: a history with more than one entry in it.
+ *
+ * These are the seal tests' shape — through the committed command line, then read
+ * back with the verifier's own reader — because the claim is the same one: the
+ * two implementations of this specification agree about the bytes between them.
+ * The rules are section 15.6's, and the mistake they are written to make
+ * impossible is a producer that gets one wrong by being *helpful*: refusing a
+ * time the format allows, reflowing a line it was handed, or dropping a field a
+ * file carried because writing it back without the field was easier.
+ */
+
+test('seal, then edit, then verify: a document with a history, end to end', () => {
+  const first = join(WORK, 'history-1.charter');
+  const second = join(WORK, 'history-2.charter');
+  assert.equal(sealTo(first).status, 0);
+
+  const edited = charter(['edit', first, SECOND_PATH, '--key', KEY_PATH, '-o', second, '--summary', 'Add a History section.', '--created-at', '2026-01-02T09:30:00Z']);
+  assert.equal(edited.status, 0, edited.stderr);
+
+  const verified = charter(['verify', second, '--json']);
+  assert.equal(verified.status, 0, verified.stderr);
+  const report = JSON.parse(verified.stdout);
+  assert.equal(report.verdict, 'VERIFIED');
+  assert.equal(report.checks.every((check) => check.status === 'PASS'), true, 'every check must pass on an edited file');
+  assert.equal(report.artifact.entries, 2, 'the file records two revisions');
+  assert.equal(report.artifact.title, 'Charter: a sealed draft', 'the title the seal recorded is the title an edit keeps');
+  assert.equal(report.artifact.author_name, 'Casey');
+  assert.equal(report.artifact.format, 'charter/0.1');
+});
+
+test('an edit appends a line and copies the lines it was handed, byte for byte', async () => {
+  const first = join(WORK, 'copy-1.charter');
+  const second = join(WORK, 'copy-2.charter');
+  const third = join(WORK, 'copy-3.charter');
+  assert.equal(sealTo(first).status, 0);
+  assert.equal(charter(['edit', first, SECOND_PATH, '--key', KEY_PATH, '-o', second, '--created-at', '2026-01-02T09:30:00Z']).status, 0);
+  assert.equal(charter(['edit', second, CONTENT_PATH, '--key', KEY_PATH, '-o', third, '--created-at', '2026-01-03T11:00:00Z']).status, 0);
+
+  const one = await entryBytes(new Uint8Array(readFileSync(first)), 'provenance.jsonl');
+  const two = await entryBytes(new Uint8Array(readFileSync(second)), 'provenance.jsonl');
+  const three = await entryBytes(new Uint8Array(readFileSync(third)), 'provenance.jsonl');
+  assert.ok(three.length > two.length && two.length > one.length, 'each edit adds bytes and removes none');
+  assert.deepEqual(three.subarray(0, two.length), two, 'the third log begins with the second log, byte for byte');
+  assert.deepEqual(two.subarray(0, one.length), one, 'the second log begins with the first log, byte for byte');
+
+  const lines = splitLines(three);
+  assert.equal(lines.ok, true);
+  assert.equal(lines.lines.length, 3);
+  const entries = lines.lines.map((line, index) => {
+    const read = parseLine(line, index + 1);
+    assert.equal(read.ok, true);
+    return read.value;
+  });
+  assert.deepEqual(entries.map((entry) => entry.action), ['create', 'edit', 'edit']);
+  assert.equal(entries[0].parent, null, 'the chain still starts where it said it started');
+  // A link is the digest of the line before it as it stands in the file, which is
+  // the value the verifier's own chain check recomputes.
+  assert.equal(entries[1].parent, toHex(await sha256(concat([lines.lines[0], LF]))));
+  assert.equal(entries[2].parent, toHex(await sha256(concat([lines.lines[1], LF]))));
+  assert.equal(entries[1].content_sha256, toHex(await sha256(utf8Encode(SECOND_MARKDOWN))), 'the second entry signs over the revision that was current then');
+  assert.equal(entries[2].content_sha256, toHex(await sha256(utf8Encode(MARKDOWN))), 'and editing back is a third entry, not a rewrite of the second');
+});
+
+test('an edit is deterministic: the same artifact, document and arguments produce the same bytes', () => {
+  const base = join(WORK, 'edit-determinism-base.charter');
+  const one = join(WORK, 'edit-determinism-1.charter');
+  const two = join(WORK, 'edit-determinism-2.charter');
+  const other = join(WORK, 'edit-determinism-3.charter');
+  assert.equal(sealTo(base).status, 0);
+
+  const args = (out) => ['edit', base, SECOND_PATH, '--key', KEY_PATH, '-o', out, '--summary', 'Add a History section.', '--created-at', '2026-01-02T09:30:00Z'];
+  for (const out of [one, two]) assert.equal(charter(args(out)).status, 0);
+  assert.deepEqual(readFileSync(one), readFileSync(two), 'two edits of the same inputs must be the same bytes, byte for byte');
+
+  assert.equal(charter(['edit', base, SECOND_PATH, '--key', KEY_PATH, '-o', other, '--created-at', '2026-01-02T09:30:01Z']).status, 0);
+  assert.notDeepEqual(readFileSync(other), readFileSync(one), 'a different stated time is a different record');
+});
+
+test('the action an edit writes is one the reader defines, and a summary nobody stated says so', async () => {
+  assert.ok(ACTIONS.includes(LATER_ACTION), `${LATER_ACTION} is not an action verifier/provenance.js defines`);
+  const sealed = await seal({ content: utf8Encode(MARKDOWN), key: KEY_TEXT, author: 'Casey', created_at: AT });
+  const edited = await edit({ artifact: sealed.bytes, content: utf8Encode(SECOND_MARKDOWN), key: KEY_TEXT, created_at: '2026-01-02T09:30:00Z' });
+
+  const lines = splitLines(await entryBytes(edited.bytes, 'provenance.jsonl'));
+  assert.equal(lines.ok, true);
+  assert.equal(lines.lines.length, 2);
+  const last = parseLine(lines.lines[1], 2);
+  assert.equal(last.ok, true);
+  assert.equal(last.value.action, LATER_ACTION);
+  assert.equal(last.value.summary, NO_SUMMARY_STATED, 'an edit does not put a sentence in a signed record that nobody wrote');
+  assert.equal(last.value.author.name, 'Casey', "with no stated name the entry carries the artifact's own name");
+  assert.equal(last.value.timestamp, '2026-01-02T09:30:00Z');
+  assert.equal(last.value.content_sha256, edited.claims.content_sha256);
+
+  // And it is signed over the shared signing input, as a seal's entry is.
+  const loaded = await loadKey(KEY_TEXT);
+  assert.equal(last.value.signature, encodeBase64Url(signBytes(loaded, signingInput(last.value, 'signature'))));
+});
+
+test("an edit that states a time earlier than its parent's is written, and verifies", async () => {
+  const base = join(WORK, 'earlier-base.charter');
+  const out = join(WORK, 'earlier.charter');
+  assert.equal(sealTo(base).status, 0);
+
+  const run = charter(['edit', base, SECOND_PATH, '--key', KEY_PATH, '-o', out, '--created-at', '2025-12-31T23:59:59Z']);
+  assert.equal(run.status, 0, `nothing in the format witnesses time, so an earlier instant is not a defect: ${run.stderr}`);
+
+  const verified = charter(['verify', out, '--json']);
+  assert.equal(verified.status, 0, verified.stderr);
+  assert.equal(JSON.parse(verified.stdout).verdict, 'VERIFIED');
+
+  const lines = splitLines(await entryBytes(new Uint8Array(readFileSync(out)), 'provenance.jsonl'));
+  const last = parseLine(lines.lines[1], 2);
+  assert.equal(last.value.timestamp, '2025-12-31T23:59:59Z', 'the entry states the time it was given');
+  assert.equal(
+    recorded('entry-with-earlier-timestamp').verdict,
+    'VERIFIED',
+    'and the kit requires the same shape to be VERIFIED, which is why the producer may not refuse it',
+  );
+});
+
+test("an edit with a key that is not the artifact's key is refused, and writes nothing", () => {
+  const base = join(WORK, 'other-key-base.charter');
+  const out = join(WORK, 'other-key.charter');
+  const stranger = join(WORK, 'stranger.pem');
+  writeFileSync(stranger, generateKeyPairSync('ed25519').privateKey.export({ type: 'pkcs8', format: 'pem' }).toString());
+  assert.equal(sealTo(base).status, 0);
+
+  const run = charter(['edit', base, SECOND_PATH, '--key', stranger, '-o', out]);
+  assert.equal(run.status, 65, run.stderr);
+  assert.equal(run.stderr.startsWith(`charter edit: ${REASON.MISMATCH}: `), true, run.stderr);
+  assert.equal(existsSync(out), false, 'a refused edit writes no file');
+  assert.equal(charter(['verify', base]).status, 0, 'the artifact it refused to extend is untouched');
+});
+
+test('an edit refuses an artifact it cannot read, and one with no line to commit to', async () => {
+  const base = join(WORK, 'unreadable-base.charter');
+  assert.equal(sealTo(base).status, 0);
+  const sealed = new Uint8Array(readFileSync(base));
+
+  const damaged = join(WORK, 'unreadable.charter');
+  writeFileSync(damaged, flipBit(sealed, 0));
+  const refused = charter(['edit', damaged, SECOND_PATH, '--key', KEY_PATH, '-o', join(WORK, 'unreadable-out.charter')]);
+  assert.equal(refused.status, 65, refused.stderr);
+  assert.match(refused.stderr, /^charter edit: [A-Z_]+: /, 'the refusal carries a reason code, not a check id');
+  assert.equal(existsSync(join(WORK, 'unreadable-out.charter')), false);
+
+  const absent = charter(['edit', join(WORK, 'not-here.charter'), SECOND_PATH, '--key', KEY_PATH, '-o', join(WORK, 'absent-out.charter')]);
+  assert.equal(absent.status, 66, absent.stderr);
+  assert.equal(absent.stderr.startsWith(`charter edit: ${REASON.MISSING}: `), true, absent.stderr);
+
+  // A log with no entry records nothing, so there is no line for an edit to
+  // commit to: the file is readable, and it is not a place a history can be
+  // appended to.
+  const emptyPath = join(WORK, 'empty-log.charter');
+  writeFileSync(emptyPath, await rebuildWith(sealed, { 'provenance.jsonl': () => new Uint8Array(0) }));
+  const empty = charter(['edit', emptyPath, SECOND_PATH, '--key', KEY_PATH, '-o', join(WORK, 'empty-log-out.charter')]);
+  assert.equal(empty.status, 65, empty.stderr);
+  assert.equal(empty.stderr.startsWith(`charter edit: ${REASON.MISSING}: `), true, empty.stderr);
+
+  // And a file that carries no log at all is refused the same way. They are two
+  // different files — one holds an empty log and one holds none, which section 7
+  // gives two different checks — and one answer from the producer, because in
+  // neither is there a line to commit to.
+  const archive = parseArchive(sealed);
+  assert.equal(archive.ok, true);
+  const withoutLog = [];
+  for (const record of archive.entries) {
+    const read = await readEntryData(sealed, record);
+    if (record.name !== 'provenance.jsonl') withoutLog.push({ name: record.name, data: read.data });
+  }
+  const absentLogPath = join(WORK, 'absent-log.charter');
+  writeFileSync(absentLogPath, zipStore(withoutLog));
+  const absentLog = charter(['edit', absentLogPath, SECOND_PATH, '--key', KEY_PATH, '-o', join(WORK, 'absent-log-out.charter')]);
+  assert.equal(absentLog.status, 65, absentLog.stderr);
+  assert.equal(absentLog.stderr.startsWith(`charter edit: ${REASON.MISSING}: `), true, absentLog.stderr);
+});
+
+test('an edit refuses a manifest field charter/0.1 gives no rule to, rather than dropping it', async () => {
+  const base = join(WORK, 'unknown-field-base.charter');
+  assert.equal(sealTo(base).status, 0);
+  const sealed = new Uint8Array(readFileSync(base));
+  const manifest = parseJsonBytes(await entryBytes(sealed, 'manifest.json'));
+  assert.equal(manifest.ok, true);
+
+  // A well-formed field this format does not define, written canonically beside
+  // the ones it does. A writer that read the file and wrote it back would drop
+  // it — and a dropped claim is not the same deed as one never made.
+  const widened = canonicalDocument({ ...manifest.value, rights: 'all of them' });
+  const artifactPath = join(WORK, 'unknown-field.charter');
+  writeFileSync(artifactPath, await rebuildWith(sealed, { 'manifest.json': () => widened }));
+
+  const run = charter(['edit', artifactPath, SECOND_PATH, '--key', KEY_PATH, '-o', join(WORK, 'unknown-field-out.charter')]);
+  assert.equal(run.status, 65, run.stderr);
+  assert.equal(run.stderr.startsWith(`charter edit: ${REASON.UNKNOWN_FIELD}: `), true, run.stderr);
+  assert.ok(run.stderr.includes('rights'), `the refusal must name the field it would have dropped: ${run.stderr}`);
+});
+
+test('an edit refuses a format this build does not implement', async () => {
+  const base = join(WORK, 'other-format-base.charter');
+  assert.equal(sealTo(base).status, 0);
+  const sealed = new Uint8Array(readFileSync(base));
+
+  // The declared identifier is changed to another one of the same length, so the
+  // container's sizes, offsets and CRC-32s still agree with its bytes and the
+  // only thing wrong with the file is what it declares.
+  const manifest = await entryBytes(sealed, 'manifest.json');
+  const at = indexOfSequence(manifest, 'charter/0.1');
+  assert.ok(at >= 0, 'the manifest must declare the format');
+  const changed = Uint8Array.from(manifest);
+  changed[at + 'charter/0.'.length] = 0x39; // 0.1 becomes 0.9
+  const artifactPath = join(WORK, 'other-format.charter');
+  writeFileSync(artifactPath, await rebuildWith(sealed, { 'manifest.json': () => changed }));
+
+  const run = charter(['edit', artifactPath, SECOND_PATH, '--key', KEY_PATH, '-o', join(WORK, 'other-format-out.charter')]);
+  assert.equal(run.status, 65, run.stderr);
+  assert.equal(run.stderr.startsWith(`charter edit: ${REASON.UNSUPPORTED_FEATURE}: `), true, run.stderr);
+
+  // The reader says the same thing about the same file, which is the point of
+  // refusing it here: the format gate reports UNSUPPORTED with the code section
+  // 14 fixes for an identifier this build does not implement, and a verdict with
+  // an unestablished format is INCOMPLETE rather than a pass.
+  const verified = charter(['verify', artifactPath, '--json']);
+  assert.equal(verified.status, 1, verified.stderr);
+  const verdict = JSON.parse(verified.stdout);
+  assert.equal(verdict.verdict, 'INCOMPLETE');
+  const gate = verdict.checks.find((check) => check.id === 'L0.FORMAT.IDENTIFIER');
+  assert.deepEqual(
+    { status: gate.status, reason_code: gate.reason_code },
+    { status: 'UNSUPPORTED', reason_code: REASON.UNSUPPORTED_VERSION },
+  );
+});
+
+test("an artifact carrying a fourth entry, or two of one name, is refused with the entry set's own codes", async () => {
+  const base = join(WORK, 'entry-set-base.charter');
+  assert.equal(sealTo(base).status, 0);
+  const sealed = new Uint8Array(readFileSync(base));
+
+  const archive = parseArchive(sealed);
+  assert.equal(archive.ok, true);
+  const entries = [];
+  for (const record of archive.entries) {
+    const read = await readEntryData(sealed, record);
+    entries.push({ name: record.name, data: read.data });
+  }
+
+  // A fourth entry is content the file carries and a charter/0.1 writer has no
+  // room for, so an edit could only drop it — which is the same deed as dropping
+  // a manifest field, and it is refused the same way.
+  const extraPath = join(WORK, 'entry-set-extra.charter');
+  writeFileSync(extraPath, zipStore([...entries, { name: 'notes.txt', data: utf8Encode('notes\n') }]));
+  const extra = charter(['edit', extraPath, SECOND_PATH, '--key', KEY_PATH, '-o', join(WORK, 'entry-set-extra-out.charter')]);
+  assert.equal(extra.status, 65, extra.stderr);
+  assert.equal(extra.stderr.startsWith(`charter edit: ${REASON.EXTRA}: `), true, extra.stderr);
+  assert.ok(extra.stderr.includes('notes.txt'), extra.stderr);
+
+  const content = entries.find((entry) => entry.name === 'content.md');
+  assert.ok(content !== undefined);
+  const duplicatePath = join(WORK, 'entry-set-duplicate.charter');
+  writeFileSync(duplicatePath, zipStore([...entries, { name: 'content.md', data: content.data }]));
+  const duplicate = charter(['edit', duplicatePath, SECOND_PATH, '--key', KEY_PATH, '-o', join(WORK, 'entry-set-duplicate-out.charter')]);
+  assert.equal(duplicate.status, 65, duplicate.stderr);
+  assert.equal(duplicate.stderr.startsWith(`charter edit: ${REASON.DUPLICATE}: `), true, duplicate.stderr);
+});
+
+test('an edit copies the entries and writes the container: a container defect is not carried forward, and a history defect is not repaired', async () => {
+  const base = join(WORK, 'not-a-repair-base.charter');
+  const containerDefect = join(WORK, 'not-a-repair-container.charter');
+  const output = join(WORK, 'not-a-repair-edited.charter');
+  assert.equal(sealTo(base).status, 0);
+  const sealed = new Uint8Array(readFileSync(base));
+
+  // The first local header declares a feature level one above what section 3.2
+  // fixes, in one copy only. A reader refuses that file; the producer reads it —
+  // the entries are all there — and writes a container of its own, because the
+  // container's fixed fields are the writer's, and the entry bytes are not.
+  const damaged = flipBit(sealed, 4);
+  writeFileSync(containerDefect, damaged);
+  const before = await verify(damaged);
+  assert.equal(before.verdict, 'BROKEN');
+  assert.equal(failing(before.checks)['L0.ZIP.METADATA'], 'MISMATCH');
+
+  const run = charter(['edit', containerDefect, SECOND_PATH, '--key', KEY_PATH, '-o', output, '--created-at', '2026-01-02T09:30:00Z']);
+  assert.equal(run.status, 0, run.stderr);
+  const after = await verify(new Uint8Array(readFileSync(output)));
+  assert.equal(after.verdict, 'VERIFIED', 'the container this producer writes is the container section 3 fixes');
+
+  // And the history is the same history: the log the file carried is the log the
+  // new file carries, byte for byte, with one new line after it.
+  const carried = await entryBytes(sealed, 'provenance.jsonl');
+  const written = await entryBytes(new Uint8Array(readFileSync(output)), 'provenance.jsonl');
+  assert.deepEqual(written.subarray(0, carried.length), carried);
+
+  // The other half, and the half that matters: a defect in the *history* is not
+  // repaired either. One character of the first entry's signature, then an edit,
+  // and the file is still broken in the same way — because an edit is not a
+  // verdict, and the line it was handed is the line it copies.
+  const stalePath = join(WORK, 'not-a-repair-stale.charter');
+  writeFileSync(stalePath, await rebuildWith(sealed, { 'provenance.jsonl': changeSignatureCharacter }));
+  const staleOutput = join(WORK, 'not-a-repair-stale-edited.charter');
+  const editedStale = charter(['edit', stalePath, SECOND_PATH, '--key', KEY_PATH, '-o', staleOutput, '--created-at', '2026-01-02T09:30:00Z']);
+  assert.equal(editedStale.status, 0, `the file was readable, so the line was written: ${editedStale.stderr}`);
+  const staleAfter = await verify(new Uint8Array(readFileSync(staleOutput)));
+  assert.equal(staleAfter.verdict, 'BROKEN');
+  assert.equal(
+    failing(staleAfter.checks)['L1.PROVENANCE.SIGNATURES'],
+    'MISMATCH',
+    'the stale signature is still stale: the producer copied the line rather than repairing it',
+  );
+});
+
+test('an edited file keeps what the first entry declared, and a stated title replaces the title', async () => {
+  const base = join(WORK, 'keeps-base.charter');
+  const kept = join(WORK, 'keeps-edited.charter');
+  const retitled = join(WORK, 'keeps-retitled.charter');
+  assert.equal(sealTo(base).status, 0);
+  assert.equal(charter(['edit', base, SECOND_PATH, '--key', KEY_PATH, '-o', kept, '--created-at', '2026-01-02T09:30:00Z']).status, 0);
+  assert.equal(charter(['edit', base, SECOND_PATH, '--key', KEY_PATH, '-o', retitled, '--title', 'A stated title']).status, 0);
+
+  const before = await readCharter(new Uint8Array(readFileSync(base)));
+  const after = await readCharter(new Uint8Array(readFileSync(kept)));
+  assert.equal(before.ok, true);
+  assert.equal(after.ok, true);
+  assert.equal(after.claims.title, before.claims.title, 'an edit does not rename the document behind the author');
+  assert.equal(after.claims.author_name, before.claims.author_name);
+  assert.equal(after.claims.author_key_id, before.claims.author_key_id);
+  assert.equal(after.claims.created_at, before.claims.created_at, "the creation time is the first revision's, and stays");
+  assert.equal(after.claims.entries, 2);
+  assert.notEqual(after.claims.content_sha256, before.claims.content_sha256, 'the head describes the revision this edit wrote');
+
+  const stated = await readCharter(new Uint8Array(readFileSync(retitled)));
+  assert.equal(stated.ok, true);
+  assert.equal(stated.claims.title, 'A stated title', 'a stated title is the one claim this edit replaces');
+  assert.equal(charter(['verify', retitled]).status, 0);
+});
+
+test('a change to an earlier line breaks the link the next entry declared', async () => {
+  const base = join(WORK, 'link-base.charter');
+  const out = join(WORK, 'link.charter');
+  assert.equal(sealTo(base).status, 0);
+  assert.equal(charter(['edit', base, SECOND_PATH, '--key', KEY_PATH, '-o', out, '--created-at', '2026-01-02T09:30:00Z']).status, 0);
+  const bytes = new Uint8Array(readFileSync(out));
+
+  // One character of the *first* entry's summary, inside the string, so the line
+  // still parses and the only thing that changed is the bytes the second entry
+  // committed to. That is the attack the chain exists to notice, and it is only
+  // visible in a file with more than one entry.
+  const raw = await entryBytes(bytes, 'provenance.jsonl');
+  const inside = indexOfSequence(raw, 'Initial draft.');
+  assert.ok(inside >= 0, 'a seal writes that summary by default');
+  const record = entryRecord(bytes, 'provenance.jsonl');
+  const result = await verify(flipBit(bytes, record.dataOffset + inside));
+  assert.equal(result.verdict, 'BROKEN');
+  const seen = failing(result.checks);
+  assert.equal(seen['L2.CHAIN.LINKS'], 'MISMATCH', 'a link covers the line as it stands, so changing line 1 breaks it');
+  assert.equal(seen['L1.PROVENANCE.SIGNATURES'], 'MISMATCH', 'and the signature over that line no longer covers it');
+});
+
+test('no single-byte change to an edited file is verified, and every truncation is refused', async () => {
+  const base = join(WORK, 'edited-sweep-base.charter');
+  const out = join(WORK, 'edited-sweep.charter');
+  assert.equal(sealTo(base).status, 0);
+  assert.equal(charter(['edit', base, SECOND_PATH, '--key', KEY_PATH, '-o', out, '--created-at', '2026-01-02T09:30:00Z']).status, 0);
+  const bytes = new Uint8Array(readFileSync(out));
+
+  let accepted = 0;
+  for (let at = 0; at < bytes.length; at += 1) {
+    const result = await verify(flipBit(bytes, at));
+    if (result.verdict === 'VERIFIED') accepted += 1;
+  }
+  assert.equal(accepted, 0, `${accepted} of ${bytes.length} single-byte change(s) were accepted`);
+
+  const from = Math.max(0, bytes.length - 512);
+  for (let at = from; at < bytes.length; at += 1) {
+    const result = await verify(bytes.subarray(0, at));
+    assert.notEqual(result.verdict, 'VERIFIED', `a file cut at ${at} of ${bytes.length} bytes was accepted`);
+  }
 });

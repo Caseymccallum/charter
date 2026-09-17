@@ -3,7 +3,7 @@
  * The differential probe: two implementations, one input, one answer.
  *
  * This is the program that found the places `SPEC.md` was silent, and it is
- * re-runnable. For each of the 20 hand-built artifacts under `out/` it asks two
+ * re-runnable. For each of the 27 hand-built artifacts under `out/` it asks two
  * programs the same question and compares the answers:
  *
  *   - the reference command line (`node cli/charter.js verify <file> --json`),

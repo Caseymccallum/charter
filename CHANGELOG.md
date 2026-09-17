@@ -4,6 +4,127 @@ Recorded because they are decisions about published behaviour, not internal
 tidying. The format identifier in `manifest.format` changes when section 14 of
 [SPEC.md](SPEC.md) changes; this file records what changed, when, and why.
 
+## Unreleased — `charter edit`, and the two holes a second verb found
+
+`seal` begins a history and nothing in this project could write the second entry in
+one, which left the format's central claim — a document that carries its own edit
+history — as something the tool could state and not continue. `charter edit` is that
+verb: `producer/edit.js`, the subcommand, the `npm run edit` script, and 42 tests in
+`test/producer.test.js`. It is also the first thing here that writes a file it did
+not entirely make, and that is what it cost: four questions the spec had never been
+asked because no producer had been in a position to ask them — all four about *what
+a writer does with a file that is already wrong* — and then two more once the file it
+wrote had been read back, this time of the verifier.
+
+The four writer questions are rules in a new §15.6, because nothing inside an
+artifact can check what a producer decided before writing one. The two found
+afterwards were holes rather than disagreements, and both are patched: `verifier/zip.js`
+inflated a deflated entry without a bound where §3.7's ceiling says stop, and it
+reported a runtime it did not have as a failure of the file where §12 promises
+`INCOMPLETE`.
+
+Every suite is green: the kit is 56 artifacts, `node --test` is 166 tests, the port's
+own suite is 114, the probe is 27 cases, the corpus is 34, and the sweep's 212
+field-level questions come back the same way through both implementations. The
+first-user session has still not been run, and `docs/first-user.md` still says so.
+
+### What a later entry commits to, and what an edit refuses
+
+An edit reads an artifact, appends one signed line to its log, writes the new
+document, and moves the manifest's `content.sha256` with it. Everything else about
+the file it was handed is carried forward, and that is where the questions were:
+
+- **The earlier lines are copied byte for byte.** An edit appends a line and does
+  not reflow, reorder, or re-sign one, so a line written by something else is still
+  that thing's bytes. `parent` is the digest of the line before it *as that line
+  stands in the file*, which is the expression the link check already recomputes
+  rather than a second reading of §9.
+- **The entries are copied and the container is written again.** §3's fields are
+  values the format fixes rather than claims a signer made, so an artifact whose
+  container a reader refuses — two copies of a feature level that disagree, a
+  metadata field the table does not name — can still be read for its entries, and
+  what the edit writes around them is the container a conforming writer writes.
+  Nothing is laundered by that, because a producer does not repair a *claim*: a
+  history with a stale signature stays a history with a stale signature. Both halves
+  are one paragraph in §15.6, rather than one rule and one thing a reader has to
+  infer from the code.
+- **An edit requires a file it can read, not one it can believe.** It runs no
+  verdict and does not refuse a broken artifact: the line it writes commits to the
+  bytes that are there, so an honest account of a file somebody else wrote does not
+  become dishonest because that file was already broken. A producer that ran the
+  verifier over its input would be a second verifier, which is the one thing this
+  project must not grow.
+- **A summary nobody stated records the absence.** `seal` has a default because a
+  seal's fact is that this is the first revision; an edit has no such fact to state,
+  and "No summary stated." is a sentence about the missing argument rather than a
+  claim in a signed record that no signer wrote.
+- **Three shapes are refused rather than quietly repaired.** A manifest field
+  charter/0.1 gives no rule to is `UNKNOWN_FIELD`: writing the file back would drop
+  a field it carried, and dropping a claim is not the same deed as never making it.
+  A fourth entry or a second copy of one name is `EXTRA` or `DUPLICATE` — the two
+  codes the check that owns the entry set reports for the same two shapes, since
+  copying the entries it read leaves no room to drop one silently or choose between
+  them. A `format` this build does not implement is `UNSUPPORTED_FEATURE`, the code
+  §14 gives a verifier for the same file.
+- **The kit's one producer-written artifact is deliberate.** `produced-two-entries`
+  is written by `charter seal` and then `charter edit`, and it is evidence that the
+  tool's bytes are the reader's bytes — a seal and an edit that both verify — and not
+  independent-writer evidence, which is what the other 55 artifacts are for. The
+  README says which one it is, so that nobody reads it as a second builder.
+
+### The ceiling that said stop, and the reader that did not
+
+§3.7's table has said **inflation stops past it** since the ceilings were written, and
+the reference has always stopped: `inflateRaw` is handed the ceiling and cancels the
+stream once the total passes it. The port did not. Its `decompress` inflated through
+`zlib.decompress`, which has no bound, so an entry declaring 8 bytes and expanding to
+200 MB was 200 MB of memory spent answering `L0.ZIP.SIZES`=MISMATCH — a verdict about
+a document nobody sent, in the one reader whose §3.7 exists so that it never allocates
+one.
+
+What made it a finding rather than a bug report is that no case could have caught it.
+The corpus's two ceiling cases both *declare* the number — a size field of
+`0xFFFFFFFF` — so everything that reaches them is the comparison §3.7 states, which
+both implementations do. The stop is the half of a ceiling that a declaration cannot
+satisfy, and it had no case anywhere: the corpus's notes say which check carries a
+ceiling and never that anything is stopped at one, and the kit had no entry ceiling
+case at all.
+
+- **§3.7 states the stop out loud**, in a paragraph of its own: one of these ceilings
+  is enforced while the work it bounds is done as well as before it, `L0.ZIP.ENTRY_DATA`
+  carries it with `LIMIT_EXCEEDED` however few bytes a header declares, and the two
+  halves are one ceiling.
+- **The kit gained `entry-expands-past-ceiling`.** `content.md` is a raw-deflate stream
+  of 64 MiB of zero bytes and one more, its header declares 8 uncompressed bytes, and
+  its CRC-32 is the honest one. The declaration is inside the ceiling, so the
+  comparison passes and only the stop can answer this file: `BROKEN`,
+  `L0.ZIP.ENTRY_DATA`=LIMIT_EXCEEDED, and 4 checks skipped behind it. The fixture is
+  65 KiB of artifact, because a case about a ceiling may not cost a reader what the
+  ceiling exists to refuse.
+- **The port moved.** `_inflated` decodes through a `decompressobj` given a length one
+  byte past the ceiling and reads the three endings apart: DECODE_ERROR for bytes that
+  are not a stream, LIMIT_EXCEEDED for a stream that expands past the ceiling whatever
+  it declared, and DECODE_ERROR again for one that ends inside its own bytes — which
+  `decompressobj` reports by leaving `eof` false, where `zlib.decompress` raised. Every
+  recorded answer in the kit, the probe, the corpus and the sweep is unchanged.
+
+### The runtime promise the code did not keep
+
+§12 says what happens on a runtime older than the floor: every check that cannot be
+performed is reported `UNSUPPORTED` with reason `UNSUPPORTED_FEATURE`, which is
+`INCOMPLETE`, and `INCOMPLETE` is not a pass. The branch that takes the deflate
+facility away ends in `readEntryData`, which returned `status: FAIL` for every way
+`inflateRaw` can fail — so a runtime without `DecompressionStream('deflate-raw')`
+turned a check the *reader* could not do into a verdict about the *file*: `BROKEN` and
+exit 2, against the promised `INCOMPLETE` and exit 1.
+
+`test/runtime.test.js` was written to say so, with its second test skipped and the
+divergence in the skip message rather than patched, because a test that asserts a
+promise the code does not keep is a finding before it is a fix. The status now follows
+the reason code instead of the call: `UNSUPPORTED_FEATURE` is `STATUS.UNSUPPORTED` and
+the other two are `FAIL`, which is what §3.7 and §3.3 ask for. The test is un-skipped,
+and the file records what the branch did when the test was written.
+
 ## Unreleased — the two findings settled, and the session that waits on a person
 
 The pass before this one recorded two findings rather than patching them, and both

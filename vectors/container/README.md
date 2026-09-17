@@ -21,12 +21,12 @@ the replay above is the reader's.
 
 ## Why a corpus, and not a field
 
-The conformance kit holds 54 artifacts and the differential probe holds 27 more,
+The conformance kit holds 56 artifacts and the differential probe holds 27 more,
 and between them they ask about every *field* a document has. Neither can reach
 the container's byte arithmetic. A field-level case can say "this digest is
 uppercase"; it cannot say "this entry's declared compressed size is one byte more
 than the bytes that follow it", because that is not a field of a document but an
-offset in a file. Two ZIP walkers that agree on 54 fixtures and 212 field-level
+offset in a file. Two ZIP walkers that agree on 56 fixtures and 212 field-level
 cases can still disagree about it — and, on the first run of this corpus, they
 did.
 
@@ -118,7 +118,7 @@ column exists to say where an answer lives.
 
 
 Nothing here is a conformance kit. The kit is `vectors/out/` and it enforces:
-an implementation that does not reproduce its 54 answers fails. This corpus
+an implementation that does not reproduce its 56 answers fails. This corpus
 records what each implementation said, case by case, and the replay fails when an
 implementation has *moved* rather than when the two disagree. A case whose record
 says they disagree is reported as a finding, both answers side by side, and the

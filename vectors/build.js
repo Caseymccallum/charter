@@ -669,6 +669,16 @@ const THREE_ENTRY_LINE1 = hex(sha256(buildLog(THREE_ENTRY_LOG).lines[0]));
  */
 const MAX_JSON_DOCUMENT_BYTES = 1024 * 1024;
 
+/**
+ * SPEC.md section 3.7: one entry may declare, and may expand to, at most 64 MiB.
+ * The bytes below are one past that, and all of them are zeros, so the artifact
+ * that carries them is small: 64 MiB of expansion costs a builder a few hundred
+ * milliseconds and a reader the ceiling, which is the shape of input the number
+ * exists for.
+ */
+const MAX_ENTRY_BYTES = 64 * 1024 * 1024;
+const EXPANDING_CONTENT = new Uint8Array(MAX_ENTRY_BYTES + 1);
+
 /** A digest of bytes nobody has, for the case where the manifest's digest moves alone. */
 const UNRELATED_DIGEST = hex(sha256(utf8('A digest of a document nobody has.\n')));
 
@@ -893,6 +903,12 @@ const CASES = [
     note: 'content.md declares CRC-32 0 and holds other bytes, which is the one container claim that parsing alone cannot check.',
     spec: { entry_overrides: { 'content.md': { declared_crc32: 0 } } },
     expect: { verdict: 'BROKEN', exit_code: 2, fail: { 'L0.ZIP.CRC32': 'MISMATCH' }, unsupported: {}, skips: 0 },
+  },
+  {
+    name: 'entry-expands-past-ceiling',
+    note: 'content.md is a raw-deflate stream that expands to one byte past the ceiling for one entry, and its header declares 8 uncompressed bytes. The declaration is inside the ceiling, so the comparison section 3.7 asks for passes, and the only thing that can answer this file is the stop: the half of one ceiling that a declaration cannot satisfy. LIMIT_EXCEEDED is the word for a size this verifier refuses to work on, and this is the artifact that has one without declaring one.',
+    spec: { entry_overrides: { 'content.md': { data: EXPANDING_CONTENT, method: 8, declared_size: 8 } } },
+    expect: { verdict: 'BROKEN', exit_code: 2, fail: { 'L0.ZIP.ENTRY_DATA': 'LIMIT_EXCEEDED' }, unsupported: {}, skips: 4 },
   },
   {
     name: 'stamped-by-a-clock',
@@ -1136,7 +1152,52 @@ const CASES = [
     spec: { log: EARLIER_TIMESTAMP_LOG },
     expect: { verdict: 'VERIFIED', exit_code: 0, fail: {}, unsupported: {}, skips: 0 },
   },
+  {
+    name: 'produced-two-entries',
+    note: 'The artifact the two verbs this project ships produce: `charter seal`, then `charter edit`. Every other case here is bytes this file writes from SPEC.md, which is the independent-writer evidence the kit exists for; this one answers a different question, which is whether a history a *tool* wrote is readable by readers that did not write it. VERIFIED is the answer, and the recorded digest says the file has not changed since.',
+    spec: { produced: 'seal-then-edit' },
+    expect: { verdict: 'VERIFIED', exit_code: 0, fail: {}, unsupported: {}, skips: 0 },
+  },
 ];
+
+/**
+ * The one artifact in this kit that this file does not write.
+ *
+ * The kit's evidence is a second writer agreeing with the reader, and that is why
+ * every other case is written here, from the specification, by code that shares
+ * nothing with the verifier. This case asks what those cannot: is the output of
+ * the project's own producer readable by two readers that did not write it? So
+ * the bytes come from `producer/seal.js` and `producer/edit.js` — the two verbs a
+ * person types — and the record is replayed by the reference *and* by the Python
+ * port, neither of which wrote them.
+ *
+ * It is built here rather than committed by hand so that it stays reproducible: a
+ * seal and an edit are deterministic, this uses the kit's own published key and
+ * stated times, and nothing in the producer reads a clock. The same bytes on
+ * every run is what lets the record hold a digest of them.
+ *
+ * @returns {Promise<Uint8Array>}
+ */
+async function producedTwoEntries() {
+  const { seal } = await import('../producer/seal.js');
+  const { edit } = await import('../producer/edit.js');
+  const key = PRIVATE_KEY.export({ type: 'pkcs8', format: 'pem' }).toString();
+  const sealed = await seal({
+    content: utf8(CONTENT_REVISIONS[0]),
+    key,
+    author: NAME,
+    created_at: CREATED_AT,
+    summary: 'Initial draft.',
+  });
+  const edited = await edit({
+    artifact: sealed.bytes,
+    content: utf8(CONTENT_REVISIONS[1]),
+    key,
+    created_at: '2026-01-02T09:30:00Z',
+    summary: 'Add the Purpose section and revise the status line.',
+  });
+  return edited.bytes;
+}
 
 /* ------------------------------- the driver ------------------------------ */
 
@@ -1200,7 +1261,8 @@ async function buildAll() {
   const artifacts = new Map();
 
   for (const item of CASES) {
-    const built = buildArtifact(item.spec);
+    // The one case whose bytes come from somewhere else: see `producedTwoEntries`.
+    const built = item.spec.produced === undefined ? buildArtifact(item.spec) : { bytes: await producedTwoEntries() };
     const result = await verify(built.bytes);
     problems.push(...diff(item, result));
     artifacts.set(item.name, built.bytes);

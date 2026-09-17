@@ -1,7 +1,7 @@
 """The differential sweep: every field of the two documents, eight ways each.
 
-The conformance kit holds 54 artifacts with recorded answers and the probe holds
-20 more built by hand. Both are finite, and both were written by people thinking
+The conformance kit holds 56 artifacts with recorded answers and the probe holds
+27 more built by hand. Both are finite, and both were written by people thinking
 about one rule at a time: a fixture can only ask about a rule somebody already
 stated, so a rule two implementations read differently *and* nobody wrote a
 fixture for is invisible to both. Three findings of that shape are already
@@ -52,7 +52,7 @@ fuzzer here would be that test with both implementations asked and their five th
 compared: mutate the *container* — entry names and order, declared sizes and
 CRC-32s, compression methods, flag words, the end record — and, less often, the
 values, and compare each result. It is worth building, and the case for it is the
-container: two ZIP walkers that agree on 54 fixtures and 212 field-level cases are
+container: two ZIP walkers that agree on 56 fixtures and 212 field-level cases are
 still two implementations of one offset arithmetic, and an offset is where a read
 can succeed and mean something else. What it would need that this sweep did not: a
 corpus of *artifacts* rather than recipes, a shrinker so that a disagreement arrives

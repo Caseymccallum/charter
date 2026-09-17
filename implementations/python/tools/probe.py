@@ -1,6 +1,6 @@
 """The differential probe: hand-built artifacts the conformance kit does not hold.
 
-The kit is 54 artifacts with recorded answers. It is not the whole format: a
+The kit is 56 artifacts with recorded answers. It is not the whole format: a
 fixture can only ask about a rule somebody already thought of, and a rule nobody
 wrote down is exactly where two implementations drift apart. This tool builds 27
 artifacts by hand — a leading-zero integer, a `created_at` whose value opens a

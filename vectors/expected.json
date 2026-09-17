@@ -385,6 +385,22 @@
       }
     },
     {
+      "name": "entry-expands-past-ceiling",
+      "file": "out/entry-expands-past-ceiling.charter",
+      "bytes": 66958,
+      "sha256": "17dc5b7f2027a877fff4ec648dd11cfb60738ae002b5751b3451b280fe485c14",
+      "note": "content.md is a raw-deflate stream that expands to one byte past the ceiling for one entry, and its header declares 8 uncompressed bytes. The declaration is inside the ceiling, so the comparison section 3.7 asks for passes, and the only thing that can answer this file is the stop: the half of one ceiling that a declaration cannot satisfy. LIMIT_EXCEEDED is the word for a size this verifier refuses to work on, and this is the artifact that has one without declaring one.",
+      "expected": {
+        "verdict": "BROKEN",
+        "exit_code": 2,
+        "fail": {
+          "L0.ZIP.ENTRY_DATA": "LIMIT_EXCEEDED"
+        },
+        "unsupported": {},
+        "skips": 4
+      }
+    },
+    {
       "name": "stamped-by-a-clock",
       "file": "out/stamped-by-a-clock.charter",
       "bytes": 1884,
@@ -863,6 +879,20 @@
       "bytes": 2279,
       "sha256": "205fed555356289d26cc9149d43d98ddfbee366374c902eb7d73ade89835902c",
       "note": "A three-entry log whose last entry carries a timestamp before its parent's, correctly signed and correctly chained. VERIFIED is the answer, and it is the spec's answer: no check compares two timestamps, because the chain fixes order of inclusion and nothing in an artifact witnesses time. Changing the verifier to catch this one would be breaking the spec, not fixing it.",
+      "expected": {
+        "verdict": "VERIFIED",
+        "exit_code": 0,
+        "fail": {},
+        "unsupported": {},
+        "skips": 0
+      }
+    },
+    {
+      "name": "produced-two-entries",
+      "file": "out/produced-two-entries.charter",
+      "bytes": 1824,
+      "sha256": "a9fbe4158ba1ef0e12b6d7d190ee0a5a9d559d46d68116a50310950930ac030e",
+      "note": "The artifact the two verbs this project ships produce: `charter seal`, then `charter edit`. Every other case here is bytes this file writes from SPEC.md, which is the independent-writer evidence the kit exists for; this one answers a different question, which is whether a history a *tool* wrote is readable by readers that did not write it. VERIFIED is the answer, and the recorded digest says the file has not changed since.",
       "expected": {
         "verdict": "VERIFIED",
         "exit_code": 0,

@@ -46,7 +46,7 @@ def _write_utf8() -> None:
     On Windows it also fails outright: with stdout redirected to a pipe, Python
     encodes text with the console code page (cp1252 by default) and raises on the
     first character that is not in it — which is how the differential probe found
-    this, on an artifact whose title is U+1F600. Nothing in the 54 recorded
+    this, on an artifact whose title is U+1F600. Nothing in the 56 recorded
     fixtures reaches it, because all of their titles are ASCII.
 
     The reference writes UTF-8 through `process.stdout.write`, and the two

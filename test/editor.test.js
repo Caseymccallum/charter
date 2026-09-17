@@ -13,7 +13,7 @@
  * to send anything.
  *
  * The second half runs the page in a real browser, and is skipped cleanly when
- * this machine has none. It asks the same 54 artifacts of the browser's copy of
+ * this machine has none. It asks the same 56 artifacts of the browser's copy of
  * the verifier and compares every check status with the reference's, drives the
  * read pane on four fixtures, seals a document and compares the bytes the page
  * wrote with the bytes the command line writes for the same inputs, and asserts

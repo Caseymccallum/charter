@@ -9,9 +9,9 @@
  * clock, which the verifier may not read and the producer does not read, is
  * read here or nowhere.
  *
- * `verify` reports a verdict. `seal`, `inspect` and `cite` do not: they write a
- * file or describe one, and a refusal from any of them carries a reason code
- * from the same vocabulary a verdict prints.
+ * `verify` reports a verdict. `seal`, `edit`, `inspect` and `cite` do not: they
+ * write a file or describe one, and a refusal from any of them carries a reason
+ * code from the same vocabulary a verdict prints.
  *
  * Exit codes:
  *   0  VERIFIED       every check passed, or the command did what it said
@@ -29,6 +29,7 @@ import { readFile, stat, writeFile } from 'node:fs/promises';
 import { basename } from 'node:path';
 
 import { citationItem } from '../producer/cite.js';
+import { edit } from '../producer/edit.js';
 import { generateKeyPair } from '../producer/key.js';
 import { readCharter } from '../producer/read.js';
 import { seal } from '../producer/seal.js';
@@ -45,12 +46,13 @@ const EXIT_NO_OUTPUT = 73;
 
 const HELP = `  charter verify <file.charter> [--all] [--json]
   charter seal <content.md> --key <key.pem> -o <out.charter> [options]
+  charter edit <file.charter> <content.md> --key <key.pem> -o <out.charter> [options]
   charter inspect <file.charter>
   charter cite <file.charter> [--title <text>] [--accessed <YYYY-MM-DD>]
   charter keygen -o <key.pem> [--force]
   charter --help`;
 
-const USAGE = `charter — verify, seal, inspect and cite .charter documents
+const USAGE = `charter — verify, seal, edit, inspect and cite .charter documents
 
 Usage:
 ${HELP}
@@ -71,6 +73,26 @@ Seal:
   --summary <text>  the first entry's summary
   --force           overwrite an output file that already exists
   --json            print what was written as JSON
+
+Edit (append one revision to an artifact):
+  the first name is the artifact being extended, the second is the new revision
+  of the document; every flag is the seal's, and each one applies to the entry
+  this edit writes rather than to the claims the file already carries:
+  --key <file>      the key the artifact carries (required; any other key is
+                    refused, because every entry of a file names the one key it
+                    carries)
+  -o, --out <file>  the artifact to write (required; the input may be the output
+                    when --force is passed)
+  --title <text>    a new title; without it the artifact keeps the title it has
+  --author <name>   the name for this entry; without it the artifact's own name
+  --created-at <t>  the time to record for this entry, as YYYY-MM-DDTHH:MM:SSZ
+  --now             record the current time instead
+  --summary <text>  this entry's summary; without it the entry says none was given
+  --force           overwrite an output file that already exists
+  --json            print what was written as JSON
+
+  the earlier entries are copied byte for byte: an edit adds a line, and does not
+  rewrite, re-sign or reflow the history it was handed.
 
 Cite:
   --title <text>    state the title rather than deriving it from the document
@@ -413,7 +435,11 @@ async function runVerify(argv) {
 }
 
 /** The flags `charter seal` takes. */
-const SEAL_FLAGS = Object.freeze({
+/**
+ * The flags `seal` and `edit` share: they write the same kind of record, and the
+ * only difference between the two command lines is which entry the flags describe.
+ */
+const WRITE_FLAGS = Object.freeze({
   '--key': 'value',
   '-o': 'value',
   '--out': 'value',
@@ -469,7 +495,7 @@ function sealReport(path, size, claims) {
  * @returns {Promise<number>}
  */
 async function runSeal(argv) {
-  const parsed = readArguments(argv, SEAL_FLAGS);
+  const parsed = readArguments(argv, WRITE_FLAGS);
   if ('error' in parsed) return usageError(`charter seal: ${parsed.error}`);
 
   const content = oneName(parsed.names, 'no content file was named', 'only one document may be sealed at a time, and two were named');
@@ -522,6 +548,113 @@ async function runSeal(argv) {
     process.stdout.write(`${JSON.stringify({ file: outPath, bytes: produced.value.bytes.length, ...produced.value.claims }, null, 2)}\n`);
   } else {
     process.stdout.write(sealReport(outPath, produced.value.bytes.length, produced.value.claims));
+  }
+  return 0;
+}
+
+/**
+ * What an edit wrote, and which claims it left alone.
+ *
+ * A person reading this has to be able to tell the claims the new entry makes
+ * from the claims the file already carried, so the report names the artifact it
+ * extended and how many entries that artifact had, says beside each claim that
+ * this edit did not restate it, and prints the line the new entry commits to.
+ *
+ * @param {string} artifactPath the artifact that was extended
+ * @param {string} path
+ * @param {number} size
+ * @param {object} claims
+ * @returns {string}
+ */
+function editReport(artifactPath, path, size, claims) {
+  /** @type {string[]} */
+  const out = [];
+  out.push(`edited  ${path}  (${size} byte(s))`);
+  out.push('');
+  out.push(`  from            ${artifactPath}  (${claims.entries_before} entr${claims.entries_before === 1 ? 'y' : 'ies'})`);
+  out.push(`  format          ${claims.format}`);
+  out.push(`  title           ${claims.title}${claims.title_stated ? '  (stated by this edit)' : '  (unchanged)'}`);
+  out.push(`  author          ${claims.author_name}${claims.author_name_stated ? '  (stated by this edit)' : '  (unchanged)'}`);
+  out.push(`  key id          ${claims.key_id}`);
+  out.push(`  created         ${claims.created_at}`);
+  out.push(`  content sha256  ${claims.content_sha256}`);
+  out.push(`  was             ${claims.previous_content_sha256}`);
+  out.push(`  entries         ${claims.entries}  (one more, and it is an ${claims.action})`);
+  out.push(`  parent          ${claims.parent}`);
+  out.push(`  summary         ${claims.summary}${claims.summary_stated ? '' : '  (no summary stated)'}`);
+  out.push(`  entry time      ${claims.timestamp}${claims.time_stated ? '' : '  (no time stated: pass --now or --created-at to state one)'}`);
+  out.push('');
+  out.push('  what an edit does not mean:');
+  out.push('    the earlier entries are the bytes the file already held, copied unchanged.');
+  out.push('    the new entry is a claim made with the key above, and nothing was checked');
+  out.push('    on the way out. run `charter verify <file>` for a verdict.');
+  out.push('');
+  return `${out.join('\n')}\n`;
+}
+
+/**
+ * `charter edit <file.charter> <content.md> --key <key.pem> -o <out.charter> [options]`
+ *
+ * @param {string[]} argv everything after the subcommand
+ * @returns {Promise<number>}
+ */
+async function runEdit(argv) {
+  const parsed = readArguments(argv, WRITE_FLAGS);
+  if ('error' in parsed) return usageError(`charter edit: ${parsed.error}`);
+
+  if (parsed.names.length !== 2) {
+    return usageError('charter edit: name the artifact to extend and the new revision of the document, in that order');
+  }
+  const artifactPath = parsed.names[0];
+  const contentPath = parsed.names[1];
+
+  const keyPath = parsed.options['--key'];
+  if (typeof keyPath !== 'string') return usageError('charter edit: no key was named; pass --key <key.pem>');
+  const outPath = parsed.options['-o'] ?? parsed.options['--out'];
+  if (typeof outPath !== 'string') return usageError('charter edit: no output file was named; pass -o <out.charter>');
+  const stated = parsed.options['--created-at'];
+  if (parsed.options['--now'] === true && typeof stated === 'string') {
+    return usageError('charter edit: --now and --created-at state two different times; pass one of them');
+  }
+
+  const artifact = await readFileBytes(artifactPath);
+  if (!artifact.ok) {
+    return refusal('edit', REASON.MISSING, `${artifactPath} could not be read: ${artifact.detail}`, EXIT_NO_INPUT);
+  }
+  const contentFile = await readFileBytes(contentPath);
+  if (!contentFile.ok) {
+    return refusal('edit', REASON.MISSING, `${contentPath} could not be read: ${contentFile.detail}`, EXIT_NO_INPUT);
+  }
+  const keyFile = await readTextFile(keyPath, 'edit');
+  if (!('text' in keyFile)) return keyFile.code;
+
+  // As in a seal: the output is looked at before the work, so an edit that would
+  // overwrite a file it was not told to overwrite costs nothing and writes none.
+  if (parsed.options['--force'] !== true && (await exists(outPath))) {
+    return refusal('edit', REASON.EXTRA, `${outPath} already exists; pass --force to overwrite it`, EXIT_NO_OUTPUT);
+  }
+
+  const text = (name) => (typeof parsed.options[name] === 'string' ? parsed.options[name] : undefined);
+  const produced = await produce('edit', () =>
+    edit({
+      artifact: artifact.bytes,
+      content: contentFile.bytes,
+      key: keyFile.text,
+      title: text('--title'),
+      author: text('--author'),
+      created_at: typeof stated === 'string' ? stated : parsed.options['--now'] === true ? nowUtcSeconds() : undefined,
+      summary: text('--summary'),
+    }),
+  );
+  if (!produced.ok) return produced.code;
+
+  const written = await writeOutput(outPath, produced.value.bytes);
+  if (!written.ok) return refusal('edit', REASON.MALFORMED, `${outPath} could not be written: ${written.detail}`, EXIT_NO_OUTPUT);
+
+  if (parsed.options['--json'] === true) {
+    process.stdout.write(`${JSON.stringify({ file: outPath, bytes: produced.value.bytes.length, ...produced.value.claims }, null, 2)}\n`);
+  } else {
+    process.stdout.write(editReport(artifactPath, outPath, produced.value.bytes.length, produced.value.claims));
   }
   return 0;
 }
@@ -735,6 +868,7 @@ async function main() {
   }
   if (command === 'verify') return runVerify(rest);
   if (command === 'seal') return runSeal(rest);
+  if (command === 'edit') return runEdit(rest);
   if (command === 'inspect') return runInspect(rest);
   if (command === 'cite') return runCite(rest);
   if (command === 'keygen') return runKeygen(rest);

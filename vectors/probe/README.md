@@ -20,7 +20,7 @@ the replay above is the reader's.
 
 ## What it is for
 
-The conformance kit is 54 artifacts with recorded answers. It is not the whole
+The conformance kit is 56 artifacts with recorded answers. It is not the whole
 format: a fixture can only ask about a rule somebody already thought of, and the
 places where two implementations drift apart are exactly the places nobody wrote
 down. So this probe asks the questions the kit does not: an integer with a
@@ -54,7 +54,7 @@ claim from a sentence in a report into something a fresh clone can re-run:
   verdict and a traceback. The reference writes UTF-8 through
   `process.stdout.write` and never noticed. The port's `cli.py` now writes UTF-8
   explicitly, and `implementations/python/tests/test_cli.py` holds it there. No
-  fixture in the kit reaches it: all 54 titles are ASCII.
+  fixture in the kit reaches it: all 56 titles are ASCII.
 - **A field measured a string that the check reading the value owns.** Three
   cases, added in step 7: an entry whose `content_sha256` is `""`, one whose
   signature is `""`, and one whose `parent` is the digest of the line before it in

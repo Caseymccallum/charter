@@ -40,6 +40,7 @@ means every requirement was actually established.
 ```
 charter keygen -o key.pem                           # an Ed25519 key, PKCS#8 PEM
 charter seal notes.md --key key.pem -o notes.charter
+charter edit notes.charter notes-v2.md --key key.pem -o notes.charter --summary "Add the Risks section." --force
 charter verify notes.charter                        # VERIFIED, exit 0, or what failed
 charter inspect notes.charter                       # what the file claims, and no verdict
 charter cite notes.charter --accessed 2026-09-16    # CSL-JSON, for a reference manager
@@ -50,6 +51,14 @@ takes `--title` (the title to record), `--author` (the signer's name),
 `--created-at` (the time to record, `YYYY-MM-DDTHH:MM:SSZ`), `--now` (record the
 current time), `--summary` (the first entry's summary), `--force` (overwrite an
 existing output) and `--json`.
+
+`edit` writes one more entry into an artifact that already exists: the artifact
+first, then the new revision of the document, with the same flags, each applying
+to the entry this edit writes. It refuses a key that is not the key the artifact
+carries — every entry of a charter/0.1 file names that one key, so an entry signed
+with another one is an entry no reader can check — and it copies the earlier
+entries byte for byte rather than rewriting them. Without `--title` or `--author`
+the claims the file already carries are the claims it keeps.
 
 Two decisions about that command line are worth knowing before you use it:
 
@@ -103,12 +112,12 @@ every check it cannot perform, which is a verdict of `INCOMPLETE`, never a pass.
 ## Try it on the kit
 
 ```
-node vectors/run.js     # replay 54 artifacts against 54 recorded answers
+node vectors/run.js     # replay 56 artifacts against 56 recorded answers
 npm run probe           # 27 more artifacts, asked of two implementations
 npm run corpus          # 34 mutated containers, asked of two implementations
 npm run sweep           # every field of both documents, rewritten eleven ways each
 npm test                # the 148 tests, through node --test
-npm run kit:python      # the same 54 answers, through a second implementation
+npm run kit:python      # the same 56 answers, through a second implementation
 npm run test:python     # 114 Python tests, including that replay
 ```
 
@@ -171,7 +180,7 @@ a check measuring a string that the check reading the value owns.
 `implementations/python/` is a second reading of the same spec, in Python, by a
 reader who did not read `verifier/**` — no shared code and no shared crypto
 library, canonical JSON and the ZIP walk and the Ed25519 arithmetic written out
-again — and it replays the same 54 answers. Agreement between two readings is the
+again — and it replays the same 56 answers. Agreement between two readings is the
 only evidence about a format that is not also evidence about one program; where
 they disagreed, the spec was wrong or silent, and it was amended. What that found
 is written down in
@@ -179,7 +188,7 @@ is written down in
 amendments are section 5, section 7, section 10.1, section 12.1 and section 16 of
 [`SPEC.md`](SPEC.md).
 
-28 of those 54 artifacts are the **adversarial pass**: every way a file can lie
+28 of those 56 artifacts are the **adversarial pass**: every way a file can lie
 that we could think of, written down in [`test/adversarial.md`](test/adversarial.md)
 before it was run, with the verdict each one must produce and the observed
 result beside it. Truncated containers, missing and duplicated entries, entries
@@ -273,10 +282,10 @@ can decide from the artifact alone, and they are printed rather than guessed at.
 | `editor/` | a demonstration, not a product: one static page that shows a file's claim and seals one, importing `verifier/**` and nothing else. `editor/serve.mjs` hands it to a browser |
 | `docs/first-user.md` | the protocol for the format's first user session: what the person is given, the three moments to record verbatim, the one question to ask, and the rule that a session the person cannot finish is the finding. The session has not been run, and the document says so rather than describing one |
 | `cli/charter.js` | the only file in the project that reads or writes a file, and the only place a verdict or a refusal becomes text |
-| `vectors/` | the conformance kit: an independent builder, 54 artifacts, the recorded answers, and the replay |
+| `vectors/` | the conformance kit: an independent builder, 56 artifacts (one of them written by `charter seal` and `charter edit` rather than by the builder), the recorded answers, and the replay |
 | `vectors/probe/` | the differential probe: 27 more artifacts, the answers the reference gives for them, and the replay that asks both implementations |
 | `vectors/container/` | the same idea one level down: 34 hand-mutated containers — the whole file, not just the JSON — with both implementations' answers recorded for each, and a replay that fails when an implementation moves |
-| `implementations/python/` | a second reading of the spec: a Python verifier with no shared code, no shared crypto and its own replay of the same 54 answers, plus what the exercise found. `tools/sweep.py`, `tools/probe.py` and `tools/corpus.py` are its authoring tools: the sweep asks both implementations about every field of both documents, rewritten eleven ways each; the other two write the probe's and the corpus's records |
+| `implementations/python/` | a second reading of the spec: a Python verifier with no shared code, no shared crypto and its own replay of the same 56 answers, plus what the exercise found. `tools/sweep.py`, `tools/probe.py` and `tools/corpus.py` are its authoring tools: the sweep asks both implementations about every field of both documents, rewritten eleven ways each; the other two write the probe's and the corpus's records |
 | `test/` | 148 tests, including `purity.test.js` (the verifier stays pure, the serializer shares no code with the parser, and no writer is reachable from a verdict), `schema.test.js` (a field whose string another check reads is not measured by the reader, and the kinds the readers use are the kinds the schema declares), `parser.fuzz.test.js` (no input throws), `canonical.roundtrip.test.js` (every committed artifact is a fixed point of the reader and the serializer, both directions), `adversarial.test.js` (the table in `adversarial.md` is a claim the tests check), `producer.test.js` (seal, then verify, then every way a sealed file can be made to lie), `probe.test.js` (the probe's record, replayed), `spec.test.js` (every row of §10.2 says what settles it, and each of those names is a case that exists), `corpus.test.js` (the corpus's record, replayed, and that no case is left as a divergence), and `editor.test.js` (the page's import graph, and the page itself in a headless browser). `test/corpus.js` is not a test file: it is the hostile-text corpus both fuzz suites are stated over, so `node --test` lists it and finds nothing in it. |
 | `NAMING.md` | what the words in this project mean, and which ones are avoided |
 
@@ -300,7 +309,13 @@ JSON and the ZIP bytes from SPEC.md with its own writer, and takes hashing and
 signing from `node:crypto`. If two independently written implementations agree
 that a byte sequence is the canonical form of a value, that agreement is
 evidence about the format; two copies of one bug would be evidence about
-nothing.
+nothing. The kit has exactly one artifact this builder did not write, and it is
+there on purpose: `produced-two-entries` is `charter seal` followed by
+`charter edit`, so the record holds a history a *tool* wrote beside the ones a
+builder wrote, and both readings of the spec replay it. That artifact is not
+evidence about two writers — it is evidence that the bytes this project's own
+writing half produces are the bytes a reader expects, which is the one claim
+about the producer no hand-built fixture can make.
 
 `producer/**` is the opposite arrangement, on purpose. It is not a second
 opinion about the format: it is the writing half of it, so wherever the two

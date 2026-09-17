@@ -536,7 +536,13 @@ export async function readEntryData(bytes, entry, limits = LIMITS) {
   } else if (entry.method === METHOD_DEFLATE) {
     const inflated = await inflateRaw(compressed, limits.MAX_ENTRY_BYTES);
     if (!inflated.ok) {
-      return { ok: false, status: STATUS.FAIL, reason_code: inflated.reason_code, detail: `"${entry.name}": ${inflated.detail}` };
+      // The status follows the reason, not the call. A runtime with no deflate
+      // facility is a reader that cannot do this check — SPEC.md section 12's
+      // promise, which is UNSUPPORTED and therefore INCOMPLETE — while a stream
+      // that expands past the ceiling or does not decode is the file's failure,
+      // and section 3.7 and 3.3 both make that FAIL.
+      const status = inflated.reason_code === REASON.UNSUPPORTED_FEATURE ? STATUS.UNSUPPORTED : STATUS.FAIL;
+      return { ok: false, status, reason_code: inflated.reason_code, detail: `"${entry.name}": ${inflated.detail}` };
     }
     data = inflated.value;
   } else {

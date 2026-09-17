@@ -28,20 +28,25 @@ import { ENTRY_CONTENT, ENTRY_MANIFEST, ENTRY_PROVENANCE } from '../verifier/ver
 import { parseArchive, readEntryData } from '../verifier/zip.js';
 
 /**
- * Read the claims out of an artifact.
+ * Read an artifact down to the bytes it is made of.
  *
- * The entry map keeps the first entry of a repeated name, exactly as
- * `verifier/verify.js` does while it checks the same file. Which entry a reader
- * would see is a property of the format, not of the program reading it, so the
- * two must answer it the same way — `L0.ZIP.ENTRY_SET` is the check that
- * refuses a repeated name, and it is the verifier's to report.
+ * This is the same walk `readCharter` makes, in the same order and through the
+ * same reader modules, for a caller that has to *write* what it read rather than
+ * describe it: `edit` copies the earlier lines of the log byte for byte and
+ * commits to the line before it, so it needs the bytes and not only the claims.
+ * It is not a second opinion about the file — nothing here judges a signature, a
+ * digest, or the chain either — and there is no second copy of the reading order.
+ *
+ * An artifact with a shape charter/0.1 gives no rule to is still readable here,
+ * and the shape is reported: `unknown_field` names the field the format has no
+ * rule for, or is null.
  *
  * @param {Uint8Array} bytes
  * @param {typeof LIMITS} [limits]
- * @returns {Promise<{ ok: true, claims: object, content: Uint8Array | null }
+ * @returns {Promise<{ ok: true, manifest: object, unknown_field: string | null, manifest_bytes: Uint8Array, content: Uint8Array | null, provenance_bytes: Uint8Array | null, entry_names: string[] }
  *   | { ok: false, reason_code: string, detail: string }>}
  */
-export async function readCharter(bytes, limits = LIMITS) {
+export async function readCharterParts(bytes, limits = LIMITS) {
   const archive = parseArchive(bytes, limits);
   if (!archive.ok) return { ok: false, reason_code: archive.reason_code, detail: archive.detail };
 
@@ -69,23 +74,52 @@ export async function readCharter(bytes, limits = LIMITS) {
     return { ok: false, reason_code: manifest.reason_code, detail: `${manifest.path}: ${manifest.detail}` };
   }
 
-  const logBytes = files.get(ENTRY_PROVENANCE);
+  return {
+    ok: true,
+    manifest: manifest.manifest,
+    unknown_field: manifest.unknown_field,
+    manifest_bytes: manifestBytes,
+    content: files.get(ENTRY_CONTENT) ?? null,
+    provenance_bytes: files.get(ENTRY_PROVENANCE) ?? null,
+    entry_names: archive.entries.map((entry) => entry.name),
+  };
+}
+
+
+/**
+ * Read the claims out of an artifact.
+ *
+ * The entry map keeps the first entry of a repeated name, exactly as
+ * `verifier/verify.js` does while it checks the same file. Which entry a reader
+ * would see is a property of the format, not of the program reading it, so the
+ * two must answer it the same way — `L0.ZIP.ENTRY_SET` is the check that
+ * refuses a repeated name, and it is the verifier's to report.
+ *
+ * @param {Uint8Array} bytes
+ * @param {typeof LIMITS} [limits]
+ * @returns {Promise<{ ok: true, claims: object, content: Uint8Array | null }
+ *   | { ok: false, reason_code: string, detail: string }>}
+ */
+export async function readCharter(bytes, limits = LIMITS) {
+  const parts = await readCharterParts(bytes, limits);
+  if (!parts.ok) return parts;
+
   let entries = null;
-  if (logBytes !== undefined) {
-    const split = splitLines(logBytes, limits);
+  if (parts.provenance_bytes !== null) {
+    const split = splitLines(parts.provenance_bytes, limits);
     entries = split.ok ? split.lines.length : null;
   }
 
   return {
     ok: true,
-    content: files.get(ENTRY_CONTENT) ?? null,
+    content: parts.content,
     claims: Object.freeze({
-      format: manifest.manifest.format,
-      title: manifest.manifest.title,
-      created_at: manifest.manifest.created_at,
-      author_name: manifest.manifest.author.name,
-      author_key_id: manifest.manifest.author.key_id,
-      content_sha256: manifest.manifest.content.sha256,
+      format: parts.manifest.format,
+      title: parts.manifest.title,
+      created_at: parts.manifest.created_at,
+      author_name: parts.manifest.author.name,
+      author_key_id: parts.manifest.author.key_id,
+      content_sha256: parts.manifest.content.sha256,
       entries,
     }),
   };
