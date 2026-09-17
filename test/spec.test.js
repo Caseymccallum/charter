@@ -35,6 +35,18 @@
  * under the same claim as its numbers; a row-by-row mapping would leave a
  * reordered table passing.
  *
+ * The field lists of sections 5 and 7 are the fourth: the six fields of a
+ * manifest, the one field of its `content` object, the four of its `author`, the
+ * seven of a provenance entry, the two of that entry's `author`, and the closed
+ * enumeration an `action` must be one of. Each is declared in the document, held
+ * as an array in `verifier/manifest.js` or `verifier/provenance.js`, and held
+ * again as a tuple in the port's `documents.py` — and those arrays are not
+ * decoration: `findUnknownField` is handed them, so one of them growing a name
+ * is `EXTRA_FIELDS` accepting a field the document forbids. Here the three
+ * copies are compared as sets, because the three orders differ, and the two
+ * sentences that state the counts ("these six", "exactly these seven") are read
+ * against the rows beneath them.
+ *
  * @module test/spec
  */
 
@@ -45,6 +57,8 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { LIMITS } from '../verifier/limits.js';
+import { MANIFEST_AUTHOR_FIELDS, MANIFEST_CONTENT_FIELDS, MANIFEST_FIELDS } from '../verifier/manifest.js';
+import { ACTIONS, ENTRY_AUTHOR_FIELDS, ENTRY_FIELDS } from '../verifier/provenance.js';
 import { CHECK_IDS, REASON } from '../verifier/status.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -400,5 +414,180 @@ test('the port declares the same ceilings, in the same order', () => {
       `section 3.7's row ${index + 1} ("${row.what}") states ${row.value} and the port's constant for it is ${port[index]}`,
     );
   });
+});
+
+/**
+ * The table a counting sentence introduces, and the number its word states.
+ *
+ * The sentence is the anchor and its word is part of the claim: section 5 says
+ * "no other field than these six" and section 7 says "exactly these seven
+ * fields". Each states a count, and the table under it is that count made
+ * concrete. Both are read here, so a table that grew a row while its sentence
+ * stayed put fails in this file rather than nowhere.
+ *
+ * @param {string} text the section to search
+ * @param {string} prefix the sentence, up to but not including its number word
+ * @param {string} after what follows that word, e.g. `":"`
+ * @returns {{ stated: number, rows: string[][] }}
+ */
+function tableRows(text, prefix, after) {
+  const at = text.indexOf(prefix);
+  assert.notEqual(at, -1, `SPEC.md no longer says "${prefix}", and this test reads the table under it`);
+  const rest = text.slice(at + prefix.length).trimStart();
+  const word = /^([a-z]+)/.exec(rest);
+  assert.notEqual(word, null, `"${prefix}" is no longer followed by a number word`);
+  assert.equal(
+    rest.slice(word[1].length).startsWith(after),
+    true,
+    `"${prefix} ${word[1]}" is no longer followed by "${after}"`,
+  );
+  assert.ok(word[1] in FIELD_WORDS, `"${word[1]}" is a number word this test cannot read`);
+  /** @type {string[][]} */
+  const rows = [];
+  for (const line of rest.split('\n')) {
+    if (!line.startsWith('| ')) {
+      if (rows.length > 0) break;
+      continue;
+    }
+    const cells = line.split('|').slice(1, -1).map((cell) => cell.trim());
+    if (cells.length < 2 || /^-+$/.test(cells[1])) continue;
+    rows.push(cells);
+  }
+  assert.ok(rows.length > 0, `the table under "${prefix}" has rows, and this test reads them`);
+  return { stated: FIELD_WORDS[word[1]], rows: rows.slice(1) };
+}
+
+/** The number each word a counting sentence here could use states. */
+const FIELD_WORDS = Object.freeze({
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+});
+
+/**
+ * Every name between backticks in a string.
+ *
+ * @param {string} text
+ * @returns {string[]}
+ */
+function backticked(text) {
+  return [...text.matchAll(/`([^`]+)`/g)].map((match) => match[1]);
+}
+
+/**
+ * Every name between double quotes in a string.
+ *
+ * @param {string} text
+ * @returns {string[]}
+ */
+function quoted(text) {
+  return [...text.matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+}
+
+/**
+ * What sections 5 and 7 say each object carries, by list name.
+ *
+ * One read yields six lists, and nothing in them is transcribed. Section 5's one
+ * table names the six fields of a manifest, and two of its rows describe the
+ * objects nested inside it — a `content` object "whose only field is `sha256`"
+ * and an `author` object "with exactly `name`, `algorithm`, `key_id`,
+ * `public_key`". Section 7's table names the seven fields of an entry, and its
+ * `author` and `action` rows do the same for that nested object and for the
+ * closed enumeration an action must be one of.
+ *
+ * @returns {Record<string, string[]>}
+ */
+function declaredFields() {
+  const five = tableRows(section('5. `manifest.json`'), 'no other field than these', ':');
+  const seven = tableRows(section('7. `provenance.jsonl`'), 'each object carrying exactly these', ' fields:');
+  const sentence = (table, name) => {
+    const found = table.rows.find((cells) => backticked(cells[0]).includes(name));
+    assert.notEqual(found, undefined, `the table has no row for \`${name}\`, and this test reads that row's sentence`);
+    return found[1];
+  };
+  return {
+    'manifest fields': five.rows.map((cells) => backticked(cells[0])[0]),
+    'manifest content fields': backticked(sentence(five, 'content')),
+    'manifest author fields': backticked(sentence(five, 'author')),
+    'entry fields': seven.rows.map((cells) => backticked(cells[0])[0]),
+    'entry author fields': backticked(sentence(seven, 'author')),
+    'entry actions': quoted(sentence(seven, 'action')),
+  };
+}
+
+/**
+ * The Python port's six copies of the same lists, from `documents.py`.
+ *
+ * The port is a third reading, and it names its constants differently again, so
+ * this reads values and not names. Each is a tuple of double-quoted strings, and
+ * one of them is written across several lines, which is why the pattern closes
+ * on the closing parenthesis rather than on the line.
+ *
+ * @returns {Record<string, string[]>}
+ */
+function portFields() {
+  const source = readFileSync(join(ROOT, 'implementations', 'python', 'charter_verify', 'documents.py'), 'utf8');
+  const read = (name) => {
+    const found = new RegExp(`^${name}\\s*=\\s*\\(([^)]*)\\)`, 'ms').exec(source);
+    assert.notEqual(found, null, `documents.py no longer declares ${name}, and this test reads it`);
+    return quoted(found[1]);
+  };
+  return {
+    'manifest fields': read('MANIFEST_FIELDS'),
+    'manifest content fields': read('CONTENT_FIELDS'),
+    'manifest author fields': read('AUTHOR_FIELDS'),
+    'entry fields': read('ENTRY_FIELDS'),
+    'entry author fields': read('ENTRY_AUTHOR_FIELDS'),
+    'entry actions': read('ACTIONS'),
+  };
+}
+
+test('the field lists sections 5 and 7 declare are the lists the verifiers enforce', () => {
+  const declared = declaredFields();
+  /** @type {Record<string, readonly string[]>} */
+  const enforced = {
+    'manifest fields': MANIFEST_FIELDS,
+    'manifest content fields': MANIFEST_CONTENT_FIELDS,
+    'manifest author fields': MANIFEST_AUTHOR_FIELDS,
+    'entry fields': ENTRY_FIELDS,
+    'entry author fields': ENTRY_AUTHOR_FIELDS,
+    'entry actions': ACTIONS,
+  };
+  const port = portFields();
+  const sorted = (names) => [...names].sort();
+  for (const what of Object.keys(declared)) {
+    assert.deepEqual(
+      sorted(enforced[what]),
+      sorted(declared[what]),
+      `${what}: the document declares [${sorted(declared[what])}] and the verifier enforces [${sorted(enforced[what])}]`,
+    );
+    assert.deepEqual(
+      sorted(port[what]),
+      sorted(declared[what]),
+      `${what}: the document declares [${sorted(declared[what])}] and the port reads [${sorted(port[what])}]`,
+    );
+  }
+});
+
+test('the number each of those sentences states is the number of rows under it', () => {
+  const five = tableRows(section('5. `manifest.json`'), 'no other field than these', ':');
+  const seven = tableRows(section('7. `provenance.jsonl`'), 'each object carrying exactly these', ' fields:');
+  assert.equal(
+    five.rows.length,
+    five.stated,
+    `section 5 states ${five.stated} fields and tabulates ${five.rows.length}`,
+  );
+  assert.equal(
+    seven.rows.length,
+    seven.stated,
+    `section 7 states ${seven.stated} fields and tabulates ${seven.rows.length}`,
+  );
 });
 

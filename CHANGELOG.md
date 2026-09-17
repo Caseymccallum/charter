@@ -4,6 +4,49 @@ Recorded because they are decisions about published behaviour, not internal
 tidying. The format identifier in `manifest.format` changes when section 14 of
 [SPEC.md](SPEC.md) changes; this file records what changed, when, and why.
 
+## Unreleased — the six field lists, and the arrays a verifier is handed
+
+Sections 5 and 7 each introduce a table with a sentence that counts it. Section 5
+says a manifest is "one canonical JSON object, one LF, and no other field than
+these six", and section 7 says each entry carries "exactly these seven fields".
+Two of section 5's rows describe the objects nested inside the manifest, and one
+of section 7's does the same for an entry, so between them the document declares
+six lists:
+
+- the six fields of a manifest,
+- the one field of its `content` object,
+- the four of its `author`,
+- the seven fields of a provenance entry,
+- the two of that entry's `author`,
+- and the enumeration an `action` must be one of.
+
+Each is also declared twice in code — as an array in `verifier/manifest.js` or
+`verifier/provenance.js`, and as a tuple in the Python reading's `documents.py` —
+and nothing held any of the three copies together. **These arrays are not
+decoration.** `findUnknownField` is handed them to answer
+`L0.MANIFEST.EXTRA_FIELDS` and `L0.PROVENANCE.EXTRA_FIELDS`, so a name added to
+one of them is a field the verifier *accepts* while the document forbids it, and
+a name dropped from one is a field the verifier *rejects* while the document
+allows it. Either is a verdict that disagrees with the specification, and until
+now both would have left the suite green.
+
+`test/spec.test.js` now reads all six lists from the tables themselves — the
+nested ones are read out of the row that describes them, so no name is
+transcribed — and holds them against both code copies. The comparison is as
+**sets**, because the three orders genuinely differ: the document lists the
+manifest's fields logically, the JavaScript arrays are alphabetical, and the
+port keeps the document's order. Nothing turns on that ordering, so nothing is
+claimed about it.
+
+Two more claims were sitting in those sentences unread, and are now read: "these
+six" and "exactly these seven" are counts, and each has to match the number of
+rows beneath it. A table that grows a row while its sentence stays put fails,
+and a sentence changed to match a table that was never edited fails too.
+
+Seven ways this can drift are caught, each by the check that owns it: a field
+added to or dropped from either JavaScript array, a field renamed or dropped in
+the port, a row removed from a table, a stated count moved off its table, and an
+action enumeration widened in the document.
 ## Unreleased — the nine published ceilings, and the third declaration nobody read
 
 Section 3.7 ends with a sentence about its own table:
