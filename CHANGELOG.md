@@ -4,6 +4,77 @@ Recorded because they are decisions about published behaviour, not internal
 tidying. The format identifier in `manifest.format` changes when section 14 of
 [SPEC.md](SPEC.md) changes; this file records what changed, when, and why.
 
+## Unreleased — the boundary the courier's prose described, and the socket nobody asked
+
+`editor/serve.mjs` is a courier that hands this repository to a browser, and the
+rule that makes that safe is one branch: a request is resolved, and the resolved
+path has to be inside the tree. Four documents state it. The module's own header
+says "the resolved path has to be inside the repository, and the check is on the
+resolved path rather than on the request"; `editor/README.md` says the courier
+"reads files out of this repository and hands them to the browser"; `README.md`
+and `docs/first-user.md` both say it serves on loopback. Every test that touched
+the courier until now used it as plumbing — start it, point a browser at it, assert
+what the page did — so the one sentence that describes a security boundary was the
+one sentence with nothing behind it. A boundary only prose describes is a boundary
+nobody has measured.
+
+### Why the test is written against a socket and not against `fetch`
+
+The first attempt looked like a finding and was not one. Asking `fetch` for
+`/vectors/../../package.json` came back **200**, which reads as a traversal. It is
+not: `fetch` — and `node:http`, and every browser — normalize `..` in the target
+before the request goes out, so what reached the courier was `/package.json`. The
+client had answered the question itself and asked an easier one. A test of a path
+rule has to put the bytes on the wire by hand, so `rawGet()` opens a socket, writes
+the request line itself, and reads the response; the rule is about what arrives.
+
+That also turned up a second thing worth writing down. `serve.mjs` answers with
+`response.end(body)` and no `content-length`, which is a **chunked** response, so a
+reader that stopped at the end of the header block was comparing the page against a
+buffer beginning with a hex length. The helper de-chunks before returning, because
+what the assertions need is *the file*, not the transfer of it.
+
+### Which 404s mean something
+
+Most of the hostile targets a reader would reach for do not test the boundary at
+all, and the test says so rather than implying otherwise:
+
+- `/etc/passwd` resolves to `<root>/etc/passwd`, and `/C:/Windows/win.ini` to a
+  name no process ever created. Both are **missing files inside the tree**. They
+  come back 404, and they would come back 404 with the `inside` check deleted.
+- The case that separates the boundary from a missing file is a file that genuinely
+  exists outside the tree: the test writes one in this machine's temp directory and
+  asks for it through the `..` segments that reach it from the repository root. A
+  courier that resolved a request and served whatever it landed on would hand it
+  over; the boundary is the only thing that can refuse it.
+
+The same rule has a second half, and it is what makes it a rule about the *resolved
+path* rather than a substring check on the request: `/../<repository>/package.json`
+walks out and back in, is not an escape, and is served.
+
+### What the test was measured against, and what moved
+
+Deleting the `inside` check in `editor/serve.mjs` leaves every ordinary 404
+unchanged and turns exactly the outside-the-tree case into a 200; changing the
+binding from `127.0.0.1` to `0.0.0.0` fails the loopback assertion. Both mutations
+were run before the test was trusted, and the module was restored unchanged — no
+file under `verifier/**`, `producer/**`, `vectors/**` or `editor/` is different for
+this pass.
+
+- `test/editor.test.js` gained the courier half: one socket helper, one test that
+  asks for the page at three targets and compares it with the bytes on disk, for
+  the three content types that matter, for six targets it refuses and *why* each is
+  refused, for the outside-the-tree case, and for both sides of the resolved-path
+  rule. The module header now says what the three kinds of evidence in the file are.
+- `editor/README.md`'s courier sentence now states the resolution rule and says
+  which test asks it, instead of leaving the boundary implicit in "reads files out
+  of this repository".
+- `README.md`'s `editor.test.js` cell names the courier coverage beside the import
+  graph and the browser run.
+- The count of tests moved from 173 to **174**, updated in the three places the
+  README states it. It remains the one number these documents state that the suite
+  cannot check: a suite cannot run itself to read the number it is about to print.
+
 ## Unreleased — three documents nothing read, and a rule with no test behind it
 
 The suite that checks these documents' counts was stated over "this project's

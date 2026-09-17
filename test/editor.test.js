@@ -19,15 +19,25 @@
  * wrote with the bytes the command line writes for the same inputs, and asserts
  * that the only requests the page made were for its own files.
  *
+ * Between them is the courier, and it is a third kind of evidence: not what the
+ * page contains and not what a browser does with it, but what `editor/serve.mjs`
+ * answers when the bytes of a hostile request reach it. The rule it implements —
+ * the resolved path has to be inside the repository, and the check is on the
+ * resolved path rather than on the request — is the boundary that makes serving
+ * this tree safe at all, and it is stated in the courier's own prose and in
+ * `docs/first-user.md`; this half asks the socket instead, because a boundary
+ * that only prose describes is a boundary nobody has measured.
+ *
  * @module test/editor
  */
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { serveRepository } from '../editor/serve.mjs';
@@ -142,6 +152,192 @@ test('the editor is served by one courier, and the courier is the only node: fil
   assert.ok(readme.includes('demonstration'), 'the README says what this is: a demonstration');
   assert.ok(readme.includes('serve.mjs'), 'the README says how to open it');
 });
+
+/* -------------------------------- the courier ------------------------------ */
+
+/**
+ * The bytes a chunked response carries, without the chunk framing.
+ *
+ * HTTP/1.1 lets a response with no `content-length` describe its body in
+ * chunks, and `editor/serve.mjs` does: `response.end(body)` with no length set
+ * is answered as `transfer-encoding: chunked`. A reader that stopped at the end
+ * of the header block would hand the assertions below a body beginning with a
+ * hex length rather than with the file — which is what this test did until the
+ * page's own bytes were compared and the difference turned out to be an
+ * artifact of the reader rather than of the courier.
+ *
+ * @param {Buffer} body the bytes after the header block
+ * @returns {Buffer}
+ */
+function decodeChunked(body) {
+  /** @type {Buffer[]} */
+  const parts = [];
+  let at = 0;
+  while (at < body.length) {
+    const lineEnd = body.indexOf('\r\n', at);
+    if (lineEnd === -1) break;
+    const size = Number.parseInt(body.subarray(at, lineEnd).toString('utf8').split(';')[0].trim(), 16);
+    if (!Number.isFinite(size) || size === 0) break;
+    parts.push(body.subarray(lineEnd + 2, lineEnd + 2 + size));
+    at = lineEnd + 2 + size + 2;
+  }
+  return Buffer.concat(parts);
+}
+
+/**
+ * One raw HTTP request, over a socket, and the whole response.
+ *
+ * The target is written into the request line by hand rather than handed to
+ * `fetch` or to `node:http`, because both normalize `..` on the way out: asking
+ * one of them for `/vectors/../../package.json` puts `/package.json` on the
+ * wire, which is a different question from the one a hostile client asks and an
+ * easier one to answer correctly. The rule under test is what the courier does
+ * with the bytes that actually reach it, so the bytes are written here.
+ *
+ * The body is de-chunked when the response says it is chunked, because this
+ * returns *the file* and not the transfer of it: what a reader is handed back
+ * has to be comparable with the bytes on disk for the assertions below to mean
+ * anything.
+ *
+ * @param {number} port
+ * @param {string} target
+ * @returns {Promise<{ status: number, headers: Record<string, string>, body: Buffer }>}
+ */
+function rawGet(port, target) {
+  return new Promise((done, failed) => {
+    const socket = connect(port, '127.0.0.1');
+    /** @type {Buffer[]} */
+    const chunks = [];
+    socket.on('error', failed);
+    socket.on('data', (chunk) => chunks.push(chunk));
+    socket.on('end', () => {
+      const whole = Buffer.concat(chunks);
+      const bodyAt = whole.indexOf('\r\n\r\n');
+      const head = whole.subarray(0, bodyAt).toString('utf8').split('\r\n');
+      /** @type {Record<string, string>} */
+      const headers = {};
+      for (const line of head.slice(1)) {
+        const at = line.indexOf(':');
+        if (at > 0) headers[line.slice(0, at).toLowerCase()] = line.slice(at + 1).trim();
+      }
+      const body = whole.subarray(bodyAt + 4);
+      done({
+        status: Number(head[0].split(' ')[1]),
+        headers,
+        body: headers['transfer-encoding'] === 'chunked' ? decodeChunked(body) : body,
+      });
+    });
+    socket.end(`GET ${target} HTTP/1.1\r\nhost: 127.0.0.1:${port}\r\nconnection: close\r\n\r\n`);
+  });
+}
+
+test('the courier hands out this repository, and refuses to climb out of it', async (t) => {
+  const served = await serveRepository();
+  t.after(() => served.close());
+
+  const address = served.server.address();
+  const bound = typeof address === 'object' && address !== null ? address : null;
+  const port = bound?.port ?? 0;
+
+  // Bound to loopback, and to `127.0.0.1` rather than to every interface: a
+  // courier listening on `0.0.0.0` would be one that hands this repository to
+  // whatever can reach the machine.
+  assert.equal(bound?.address, '127.0.0.1', 'the courier listens on loopback and not on the network');
+  assert.equal(served.origin, `http://127.0.0.1:${port}`);
+  assert.equal(served.url, `${served.origin}/editor/`);
+
+  // What it serves: the page, asked for at the root, at the directory the URL
+  // names, and by name. A directory asks for its `index.html`; all three are the
+  // same bytes, which are the bytes on disk.
+  const page = readFileSync(join(EDITOR, 'index.html'));
+  for (const target of ['/', '/editor/', '/editor/index.html']) {
+    const answer = await rawGet(port, target);
+    assert.equal(answer.status, 200, `${target} is a file in this repository`);
+    assert.equal(answer.headers['content-type'], 'text/html; charset=utf-8', `${target}`);
+    assert.ok(answer.body.equals(page), `${target} answers with the page, byte for byte`);
+    assert.equal(
+      answer.headers['cache-control'],
+      'no-store',
+      `${target}: nothing is cached, so the page a reader sees is the page on disk`,
+    );
+  }
+
+  // The types that matter: `text/javascript` is what makes a browser run the
+  // module the page imports, and a `.charter` file is bytes rather than text.
+  for (const [target, type] of [
+    ['/editor/editor.js', 'text/javascript; charset=utf-8'],
+    ['/SPEC.md', 'text/markdown; charset=utf-8'],
+    ['/vectors/out/valid.charter', 'application/octet-stream'],
+  ]) {
+    const answer = await rawGet(port, target);
+    assert.equal(answer.status, 200, target);
+    assert.equal(answer.headers['content-type'], type, target);
+  }
+  const artifact = await rawGet(port, '/vectors/out/valid.charter');
+  assert.ok(
+    artifact.body.equals(readFileSync(join(FIXTURES, 'out', 'valid.charter'))),
+    'an artifact is served as the bytes on disk, not re-encoded on the way out',
+  );
+
+  // What it refuses, and one thing about *why* it refuses that is easy to get
+  // wrong. Every target below comes back 404, and not one of them is refused
+  // because the boundary caught it: `/etc/passwd` resolves to `ROOT/etc/passwd`
+  // and `/C:/Windows/win.ini` to a name no process ever created, so they are
+  // missing files inside the tree rather than escapes from it. A courier with
+  // the boundary deleted answers every one of them the same 404. These are the
+  // ordinary case — a request for something that is not there — and they are
+  // kept because that is what most hostile traffic is.
+  for (const target of [
+    '/%zz',
+    '/C:/Windows/win.ini',
+    '/etc/passwd',
+    '/editor/index.html%00.txt',
+    '/verifier/',
+    '/no-such-file.md',
+  ]) {
+    const answer = await rawGet(port, target);
+    assert.equal(answer.status, 404, `${target} is refused`);
+    assert.equal(answer.headers['content-type'], 'text/plain; charset=utf-8', target);
+    assert.ok(answer.body.toString('utf8').startsWith('not found: '), `${target}: the refusal names the target it refused`);
+  }
+
+  // The case that separates the boundary from a missing file, and the reason
+  // this half of the test exists at all. A file is written outside the tree —
+  // in this machine's temp directory — and asked for through the `..` segments
+  // that reach it from here. It *exists*, so a courier that resolved a request
+  // and served whatever it landed on would hand it over; the boundary is the
+  // only thing that can refuse it. Deleting the `inside` check in
+  // `editor/serve.mjs` leaves every 404 above unchanged and turns this one into
+  // a 200, which is how this test was measured before it was trusted.
+  const outside = join(tmpdir(), `charter-courier-${process.pid}.txt`);
+  writeFileSync(outside, 'this file is not in the repository\n');
+  t.after(() => rmSync(outside, { force: true }));
+  const escape = relative(ROOT, outside).split(sep).join('/');
+  assert.ok(
+    escape.startsWith('../'),
+    `temp is not reachable from ${ROOT} by going up (it would be ${escape}), so this test cannot ask the question it is here to ask`,
+  );
+  const refused = await rawGet(port, `/${escape}`);
+  assert.equal(refused.status, 404, `a file that exists outside the repository is refused: /${escape}`);
+  assert.equal(
+    refused.body.toString('utf8').includes('not in the repository'),
+    false,
+    'the refusal does not carry the bytes it refused to serve',
+  );
+
+  // And the other side of the same rule, which is what makes it a rule about the
+  // resolved path rather than a substring check on the request. There is a
+  // `package.json` in this repository; a `..` that walks out and back in is not
+  // an escape, and is served. Both of these are behavior the courier's own prose
+  // claims about itself, asked of the socket instead of read as a sentence.
+  assert.equal((await rawGet(port, '/package.json')).status, 200, 'the repository has a package.json');
+  assert.equal(
+    (await rawGet(port, `/../${basename(ROOT)}/package.json`)).status,
+    200,
+    'a `..` that resolves back inside the tree is served: the check is on the resolved path, not on the request',
+  );
+});
+
 
 /* -------------------------- the browser, if there is one ------------------- */
 

@@ -38,7 +38,10 @@ Measured in Chrome 153.0.8010.37, and true of Edge and Firefox for the same
 reason. Opening the page from `file://` shows that sentence and the command above
 instead of an empty page. `editor/serve.mjs` is a courier, not a server this
 editor needs: it reads files out of this repository and hands them to the
-browser, and `test/editor.test.js` starts it the same way a reader does.
+browser, and it resolves each request before answering it, so a path that climbs
+out of the tree is refused rather than served — that boundary is what makes
+serving this directory safe at all. `test/editor.test.js` starts it the same way a
+reader does, and then asks it over a socket for both halves of the rule.
 
 **No network requests are made.** The page asks for `editor/index.html`, its own
 module, and the modules under `verifier/` that module imports — all from the same
