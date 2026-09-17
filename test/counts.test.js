@@ -380,6 +380,8 @@ const NOT_READ = Object.freeze({
     'a comparison against three published specifications: the one count it states about this tree is SPEC.md\'s size in bytes, which is a fact about a file rather than about a set of artifacts, and it is re-measurable from the file itself',
   'docs/where-to-post.md':
     'a plan for where to publish the announcement and which questions will be asked: it names external venues and mailing lists rather than anything in this tree, and states no count about it at all',
+  'docs/roadmap.md':
+    'a plan of work: the numbers it states are targets for future passes or the measurements of one demonstration, and neither kind is a count of the tree',
 });
 
 /** The documents a claim above reads a count out of, which rule 4 is stated over. */
