@@ -423,6 +423,130 @@ test('open refuses a file whose entries it cannot call the document, rather than
   assert.equal(refused.stdout, '', 'nothing comes out of a file that could not be read as a charter');
 });
 
+/* --------------------------- keys and passphrases -------------------------- */
+
+/** A key file behind a passphrase, and the file the passphrase is read from. */
+const PASSPHRASE = 'correct horse battery staple';
+const PASSPHRASE_PATH = join(WORK, 'passphrase.txt');
+writeFileSync(PASSPHRASE_PATH, `${PASSPHRASE}\n`);
+const PROTECTED_KEY = join(WORK, 'protected.key');
+const PROTECTED_KEYGEN = spawnSync(process.execPath, [CLI, 'keygen', '-o', PROTECTED_KEY, '--passphrase-file', PASSPHRASE_PATH], { encoding: 'utf8' });
+if (PROTECTED_KEYGEN.status !== 0) throw new Error(`the fixture key file could not be written, so no test here can run: ${PROTECTED_KEYGEN.stderr}`);
+
+/** @param {string} text @param {RegExp} pattern @returns {string} */
+function firstMatch(text, pattern) {
+  const found = pattern.exec(text);
+  assert.notEqual(found, null, `expected ${pattern} in:\n${text}`);
+  return /** @type {RegExpExecArray} */ (found)[1];
+}
+
+test('keygen --encrypt writes a key file that is worth nothing without its passphrase', () => {
+  assert.match(PROTECTED_KEYGEN.stdout, /encrypted with a passphrase/, 'the report says which kind of file it wrote');
+  assert.match(PROTECTED_KEYGEN.stdout, /128 MiB/, 'and gives the cost of one guess, which is what the passphrase is worth');
+  const text = readFileSync(PROTECTED_KEY, 'utf8');
+  assert.match(text, /^-----BEGIN CHARTER ENCRYPTED KEY-----/, 'the file is armored text');
+  assert.equal(text.includes('PRIVATE KEY'), false, 'and it is not a PEM that some other tool would read');
+  assert.equal(text.includes(PASSPHRASE), false, 'the passphrase is not in the file');
+});
+
+test('a document sealed with an encrypted key verifies, under the key that file names', () => {
+  const out = join(WORK, 'protected.charter');
+  const run = charter(['seal', CONTENT_PATH, '--key', PROTECTED_KEY, '--passphrase-file', PASSPHRASE_PATH, '-o', out]);
+  assert.equal(run.status, 0, run.stderr);
+  assert.equal(
+    firstMatch(run.stdout, /key id\s+(ed25519:[0-9a-f]{64})/),
+    firstMatch(PROTECTED_KEYGEN.stdout, /key id\s+(ed25519:[0-9a-f]{64})/),
+    'the seal used the key the protected file holds, and not some other key that happened to open',
+  );
+  const verified = charter(['verify', out]);
+  assert.equal(verified.status, 0, verified.stderr);
+  assert.match(verified.stdout, /VERIFIED/, 'a file signed through an encrypted key is a file like any other');
+});
+
+test('a wrong passphrase is refused, and the refusal does not say which kind of wrong it was', () => {
+  const wrong = join(WORK, 'wrong-passphrase.txt');
+  writeFileSync(wrong, 'not the passphrase\n');
+  const out = join(WORK, 'never.charter');
+  const run = charter(['seal', CONTENT_PATH, '--key', PROTECTED_KEY, '--passphrase-file', wrong, '-o', out]);
+  assert.equal(run.status, 65, 'a passphrase that does not open the file is a refusal with a reason code');
+  assert.match(run.stderr, /MISMATCH/);
+  assert.match(
+    run.stderr,
+    /passphrase is not the one it was written with, or the file has been altered/,
+    'the refusal names both causes, because telling them apart is a service to whoever is guessing',
+  );
+  assert.equal(existsSync(out), false, 'and nothing was written');
+});
+
+test('a passphrase on the command line is refused, for every verb at once', () => {
+  for (const verb of ['seal', 'edit', 'keygen', 'verify']) {
+    const run = charter([verb, '--passphrase', 'visible-to-the-process-list']);
+    assert.equal(run.status, 64, `${verb} refuses a passphrase passed as an argument`);
+    assert.match(run.stderr, /--passphrase is refused/, `${verb} says why`);
+  }
+  const refused = charter(['seal', CONTENT_PATH, '--key', PROTECTED_KEY, '--passphrase', PASSPHRASE, '-o', join(WORK, 'no.charter')]);
+  assert.match(
+    refused.stderr,
+    /history and is readable from the process list/,
+    'and points at the two ways that are not kept by a shell',
+  );
+});
+
+test('an encrypted key with no passphrase anywhere is refused rather than waited on', () => {
+  // Standard input here is an empty pipe, so there is nothing to read and nothing to
+  // prompt on. The refusal has to arrive by itself: a command that waits for input
+  // nobody will type is how a script hangs instead of reporting, and this one did that
+  // once, for five minutes, while the feature was being built.
+  const out = join(WORK, 'unopened.charter');
+  const run = charter(['seal', CONTENT_PATH, '--key', PROTECTED_KEY, '-o', out]);
+  assert.equal(run.status, 66, 'no passphrase is a named input that could not be read');
+  assert.match(run.stderr, /no passphrase was given and none could be read/);
+  assert.match(run.stderr, /--passphrase-file/);
+  assert.equal(existsSync(out), false, 'and nothing was written');
+});
+
+test('a passphrase can be supplied down a pipe, which is how a script gives one', () => {
+  const out = join(WORK, 'piped.charter');
+  const run = spawnSync(process.execPath, [CLI, 'seal', CONTENT_PATH, '--key', PROTECTED_KEY, '-o', out], {
+    encoding: 'utf8',
+    input: `${PASSPHRASE}\n`,
+  });
+  assert.equal(run.status, 0, run.stderr);
+  assert.equal(charter(['verify', out]).status, 0, 'the file sealed from a piped passphrase verifies');
+});
+
+test('CHARTER_PASSPHRASE is read when no file names one, and does not decide what keygen writes', () => {
+  const out = join(WORK, 'from-environment.charter');
+  const run = spawnSync(process.execPath, [CLI, 'seal', CONTENT_PATH, '--key', PROTECTED_KEY, '-o', out], {
+    encoding: 'utf8',
+    env: { ...process.env, CHARTER_PASSPHRASE: PASSPHRASE },
+  });
+  assert.equal(run.status, 0, run.stderr);
+  assert.equal(charter(['verify', out]).status, 0, 'the file sealed from the environment verifies');
+
+  // A key file's shape comes from the command that was typed and not from the
+  // environment: two people running the same command on two machines get the same kind
+  // of file, and a stray variable cannot silently change what keygen produces.
+  const fromEnvironment = join(WORK, 'env-key.key');
+  const keygen = spawnSync(process.execPath, [CLI, 'keygen', '-o', fromEnvironment], {
+    encoding: 'utf8',
+    env: { ...process.env, CHARTER_PASSPHRASE: PASSPHRASE },
+  });
+  assert.equal(keygen.status, 0, keygen.stderr);
+  assert.match(keygen.stdout, /PKCS#8 PEM, not encrypted/, 'the environment alone does not encrypt a new key');
+  assert.match(readFileSync(fromEnvironment, 'utf8'), /^-----BEGIN PRIVATE KEY-----/, 'so the file is the PEM it has always been');
+});
+
+test('a key file that is not the shape the format defines is refused as malformed', () => {
+  const broken = join(WORK, 'broken.key');
+  writeFileSync(broken, readFileSync(PROTECTED_KEY, 'utf8').replace('CHARTER ENCRYPTED KEY', 'CHARTER ENCRYPTED KY'));
+  const out = join(WORK, 'nope.charter');
+  const run = charter(['seal', CONTENT_PATH, '--key', broken, '--passphrase-file', PASSPHRASE_PATH, '-o', out]);
+  assert.equal(run.status, 65);
+  assert.match(run.stderr, /MALFORMED/, 'a key file of the wrong shape is malformed, and not a passphrase problem');
+  assert.equal(existsSync(out), false, 'and nothing was written');
+});
+
 /* ------------------------------- packaging -------------------------------- */
 
 test('the package would install the command this file asks about', () => {

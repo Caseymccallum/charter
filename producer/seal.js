@@ -106,7 +106,7 @@ export async function seal(request, options = {}) {
   const time = decideTime(request.created_at);
   const name = decideName(request.author);
   const summary = decideSummary(request.summary);
-  const loaded = await loadKey(request.key);
+  const loaded = await loadKey(request.key, request.passphrase);
 
   const digest = await sha256(request.content);
   if (digest === null) {

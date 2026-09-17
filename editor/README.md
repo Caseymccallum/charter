@@ -163,6 +163,15 @@ id from `deriveKeyId()`, and Ed25519 signatures are deterministic.
   or sign with a second key. Those are the operations the format's own caveat says
   the key holder can do *outside* the page, and a page that offered them would be
   inviting them.
+- **No passphrase-protected key files.** `charter keygen --encrypt` writes one
+  (SPEC.md 15.7) and this page cannot open it: a browser takes no passphrase when it
+  imports a key, and a page that derived a key of its own would be a second key
+  derivation for one format — the thing this project spends its tests preventing.
+  A protected key is refused by name, saying which file it was handed and where the
+  passphrase can be used instead. Seal and append from the command line with
+  `--passphrase-file`, or use an unencrypted PKCS#8 PEM here and accept that it is
+  unencrypted. The page's key field never wrote anything to disk in the first place,
+  which is the reason encrypting it at rest is the command line's problem.
 
 ## The tests
 
@@ -173,5 +182,6 @@ comparing every check status with the reference's, driving the read pane on five
 fixtures, saving the document a pane shows and comparing those bytes with
 `charter open`'s, sealing a document and comparing the bytes with `charter seal`'s,
 appending a revision and comparing the bytes with `charter edit`'s, asking for a
-second key and checking that it is refused, and reading the browser's own download
+second key and checking that it is refused, asking for a passphrase-protected key
+and checking that it is refused by name, and reading the browser's own download
 back with the verifier. Without a browser it skips that half and says so.

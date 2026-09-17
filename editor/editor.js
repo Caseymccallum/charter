@@ -490,6 +490,13 @@ function keyTextFromForm() {
  * @returns {Uint8Array}
  */
 function pemToDer(text) {
+  if (text.includes(KEY_FILE_LABEL)) {
+    refuse(
+      REASON.UNSUPPORTED_FEATURE,
+      'this is a passphrase-protected key file (SPEC.md 15.7), and this page cannot open one: a browser takes no passphrase when it imports a key, and this page derives no key of its own — writing one would be a second key derivation for one format. Seal and edit from the command line with `--passphrase-file`, or use an unencrypted PKCS#8 PEM here and accept that it is unencrypted',
+      'key',
+    );
+  }
   if (!/-----BEGIN PRIVATE KEY-----/.test(text)) {
     refuse(
       REASON.MALFORMED,
@@ -508,6 +515,19 @@ function pemToDer(text) {
   for (let at = 0; at < binary.length; at += 1) der[at] = binary.charCodeAt(at);
   return der;
 }
+
+/**
+ * The label a passphrase-protected key file opens with (SPEC.md 15.7).
+ *
+ * Written here as a value rather than imported, because the module that defines the
+ * container is `producer/keyfile.js` and this page may import nothing outside
+ * `verifier/**`. It is a label test and not a parser: the page does not open these files
+ * at all, and saying which file it was handed beats a PEM parser complaining about the
+ * wrong header.
+ *
+ * @type {string}
+ */
+const KEY_FILE_LABEL = '-----BEGIN CHARTER ENCRYPTED KEY-----';
 
 /**
  * Load the private key in the page and derive the name the format gives it.

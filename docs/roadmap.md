@@ -120,19 +120,34 @@ will be; `NAMING.md` records that check and the rejections.
 
 ## Phase 2 — the artifact in a user's hands
 
-**A key with a passphrase.** `keygen` writes a plaintext private key. For a format
-whose entire subject is authenticity, the weakest link in a real deployment is the
-file the key is sitting in, and it is the first thing the tool asks a user to create.
-Node's `crypto` handles this with no dependency: a PKCS#8 PEM can be encrypted on
-export and decrypted on read, which keeps the purity rule intact because it lands in
-`producer/**` and not `verifier/**`.
+**A key with a passphrase — done.** `keygen --encrypt` writes a private key behind a
+passphrase, and `seal` and `edit` open one. SPEC.md §15.7 is the format,
+`producer/keyfile.js` is the implementation, and `test/keyfile.test.js` holds the two
+together. The editor refuses a protected key by name, because a browser takes no
+passphrase for a key import and a second key derivation for one format is the thing
+this project's tests exist to prevent.
 
-- Touches the format: no — the format never sees the private key, only the public one.
-- Touches `SPEC.md`: §15.1 describes `keygen`'s output; a new flag is a spec edit of
-  the same size as 1a.
-- The honest caveat to write down: a passphrase protects the key from someone reading
-  the file, and from nothing else. It is not a security model, and the README's
-  "deliberate absences" table should say so rather than let it imply one.
+**This file predicted that Node's own `crypto` would do the job — "a PKCS#8 PEM can be
+encrypted on export and decrypted on read" — and that was wrong.** Measured before it
+was rejected: Node writes scrypt at **N=2048** (2 MiB, 7.4 ms, about 135 guesses per
+second per core); it **reads `iterations` and ignores it**; its cipher is
+**AES-256-CBC with no MAC**, so a modified ciphertext is not detected at all; and
+`aes-256-gcm` is refused through that API. Since the cost of a guess is the entire
+defence of a passphrase-wrapped key, the container is written here instead — the same
+argument that already put a ZIP writer in `verifier/zip-write.js`.
+
+- Touches the format: **no** — a key file is not an artifact, and no `.charter` field,
+  rule, limit or verdict moved.
+- Touches `SPEC.md`: **yes**, and not where this file guessed. §15.1 describes what
+  `seal` writes, not what `keygen` writes; the key file needed a section of its own,
+  §15.7, because a format the project tells a reader to rely on has to be a format it
+  writes down. §12's keygen line and §15.5's refusals moved with it.
+- The honest caveat, written down in the README and in the tool's own output: an
+  attacker who has the file can guess at it forever offline, so **the passphrase's
+  length is the whole of the protection** and everything else is arithmetic.
+- The lesson came from `C:\Users\Casey\Web Apps\plain-forms`, whose own audit records a
+  stored salt plus a known-plaintext verification token as an offline brute-force
+  oracle whose zero-knowledge claim is "contingent on passphrase strength".
 
 ## Phase 3 — the audience, and only after 1 and 2
 

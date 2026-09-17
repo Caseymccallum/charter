@@ -4,6 +4,85 @@ Recorded because they are decisions about published behaviour, not internal
 tidying. The format identifier in `manifest.format` changes when section 14 of
 [SPEC.md](SPEC.md) changes; this file records what changed, when, and why.
 
+## Unreleased — the key at rest: a key file behind a passphrase
+
+Phase 2 of the roadmap. `keygen` wrote one thing — an unencrypted PKCS#8 PEM — and its
+own output told the reader to "keep it where a private key belongs" while offering
+nothing that would help if they did not. A `.charter` file carries only the public key,
+so the private key never travels; but it sits on a disk, and on that disk it was
+readable by anyone who could read the file. For a format whose whole subject is
+authenticity, that was the weakest link in a real deployment, and it was the first
+thing the tool asked a user to create.
+
+**`keygen --encrypt` writes a key file: a private key behind a passphrase.** scrypt at
+`N = 2^17`, `r = 8`, `p = 1` — 128 MiB and about 366 ms per attempt, measured — with
+AES-256-GCM over the PKCS#8 key. The record is armored text with a fixed field layout
+and the KDF parameters inside it, so a file written today still opens under a release
+that raised the cost. SPEC.md §15.7 is the format; `producer/keyfile.js` is the
+implementation; `test/keyfile.test.js` holds one to the other.
+
+**Why not `export({ cipher, passphrase })`.** Node will encrypt a PKCS#8 key. It was
+measured before it was rejected, and all four findings are in the module's own
+documentation: the KDF is scrypt at **N=2048** (2 MiB, 7.4 ms per guess, about 135
+guesses per second per core); the `iterations` option is **read and ignored** — asked
+for 600000 it produced DER byte-identical to the default; the cipher is **AES-256-CBC
+with no MAC**, so a modified ciphertext is not detected by the decryptor at all; and
+`aes-256-gcm` is refused outright through that API. The cost of a guess is the entire
+defence of a passphrase-wrapped key, so a KDF that cannot be raised is not a starting
+point.
+
+**The lesson came from the sibling project.** `C:\Users\Casey\Web Apps\plain-forms`
+was read for exactly this, and its own audit is the reason the cost matters: it found a
+stored salt plus an "encryption of a known constant" verification token to be an
+**offline brute-force oracle**, zero-knowledge "contingent on passphrase strength".
+That is the failure this container avoids by making each attempt expensive and by
+checking nothing but the tag.
+
+**Four rules about the passphrase, and one refusal.** It comes from
+`--passphrase-file <file>` (first line), `CHARTER_PASSPHRASE`, or a prompt on a
+terminal. **`--passphrase` on the command line is refused for every verb**, centrally
+in `main()`, because a shell keeps its arguments in its history and in the process
+list. `CHARTER_PASSPHRASE` supplies a passphrase but does **not** make `keygen` write an
+encrypted file: a generated file's shape comes from the command that was typed, so the
+same command on two machines agrees.
+
+**A file that asks for an impossible cost is refused, not obeyed.** The parameters are
+in the file, which lets an old file open under a new default — and makes them
+attacker-controlled, because a key file can be handed to you. `log2(N)` above 20, or
+parameters needing more than 512 MiB, is `LIMIT_EXCEEDED` before any work is done. The
+ceiling was lowered from 1 GiB while writing this: the test that asked for exactly the
+published ceiling found it was *obeyed*, which was a gigabyte of memory an attacker
+could make this command allocate.
+
+**One bug found by doing the thing.** A prompt is refused when standard input is a
+terminal but standard error is not: the question would be written where nobody can read
+it and the command waits for an answer to a question that was never asked. That is not
+a hypothetical — `charter seal --key <protected> -o x 2> log` sat for five minutes with
+the prompt in `log` before the guard existed. It was found by running it, and the guard
+is a refusal with the two ways to supply a passphrase instead.
+
+**The editor refuses a protected key by name.** A browser takes no passphrase when it
+imports a key and the page derives none of its own, because a second key derivation for
+one format is the thing this project's tests exist to prevent. `editor.test.js` asks
+the page for one and requires the refusal to name what it was handed.
+
+**Also recorded, and it is a mistake:** an attempt to kill the stray `charter` process
+after that five-minute hang was issued as an unfiltered `Stop-Process` over every
+`node.exe`, which killed the editor's MCP tool servers as well. Nothing in this
+repository was damaged; the lesson is that a process kill needs the same filtering a
+mutation proof needs.
+
+**No format change.** No `.charter` entry name, field, rule, limit, verdict or exit
+code moved, the kit was not regenerated, and the identifier stays `charter/0.1`: a key
+file is not an artifact. `private_pem` became `private_text` on `generateKeyPair`'s
+result, because the field now holds an armored container half the time and calling that
+a PEM would be the sort of small untruth this project spends its tests on.
+
+Verified: 214 tests with 0 failures; the plain PEM path, the armored path, the wrong
+passphrase, the tampered record, the foreign label, the empty passphrase, the piped
+passphrase and the environment passphrase all exercised at the command line; the pinned
+floor and the second reading re-run.
+
 ## Unreleased — the package: a command a reader can install
 
 Phase 1c of the roadmap. Nothing about the format changed; this is distribution, and

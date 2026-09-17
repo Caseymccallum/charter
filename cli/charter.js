@@ -31,6 +31,7 @@ import { basename } from 'node:path';
 import { citationItem } from '../producer/cite.js';
 import { edit } from '../producer/edit.js';
 import { generateKeyPair } from '../producer/key.js';
+import { isKeyFile, SCRYPT_LOG_N, SCRYPT_R } from '../producer/keyfile.js';
 import { readCharter } from '../producer/read.js';
 import { seal } from '../producer/seal.js';
 import { utf8Decode, utf8Encode } from '../verifier/bytes.js';
@@ -44,13 +45,25 @@ const EXIT_REFUSED = 65;
 const EXIT_NO_INPUT = 66;
 const EXIT_NO_OUTPUT = 73;
 
+/**
+ * The length below which a passphrase is reported as short.
+ *
+ * A warning and never a refusal, because this project can say what a passphrase costs to
+ * guess and cannot say what one is worth: length is the lever, entropy is not
+ * measurable from here, and refusing a deliberate eleven-character passphrase would be
+ * this tool pretending to a judgement it does not have. Twelve is the floor the sibling
+ * project's own audit records it enforcing, which makes it a number with a precedent
+ * rather than a number invented here.
+ */
+const SHORT_PASSPHRASE = 12;
+
 const HELP = `  charter verify <file.charter> [--all] [--json]
   charter seal <content.md> --key <key.pem> -o <out.charter> [options]
   charter edit <file.charter> <content.md> --key <key.pem> -o <out.charter> [options]
   charter inspect <file.charter>
   charter open <file.charter> [-o <out.md>] [--force]
   charter cite <file.charter> [--title <text>] [--accessed <YYYY-MM-DD>]
-  charter keygen -o <key.pem> [--force]
+  charter keygen -o <key.pem> [--encrypt] [--force]
   charter --help`;
 
 const USAGE = `charter — verify, open, seal, edit, inspect and cite .charter documents
@@ -63,7 +76,15 @@ Verify:
   --json  print the verdict as JSON, and nothing else
 
 Seal:
-  --key <file>      the Ed25519 private key, as a PKCS#8 PEM file (required)
+  --key <file>      the Ed25519 private key, as a PKCS#8 PEM file or a
+                    passphrase-protected key file written by "charter keygen
+                    --encrypt" (required)
+  --passphrase-file <file>
+                    the passphrase for a protected key: read from the first line
+                    of this file. CHARTER_PASSPHRASE in the environment is read
+                    when this is not given, and the command prompts for one when
+                    there is a terminal to prompt on. A passphrase passed on the
+                    command line itself is refused, because a shell keeps it
   -o, --out <file>  the artifact to write (required)
   --title <text>    the title to record; without it the title is read out of
                     the document, or taken from the content file's name
@@ -109,6 +130,18 @@ Open (write out the document a file carries):
 Cite:
   --title <text>    state the title rather than deriving it from the document
   --accessed <date> the day the citation is made, YYYY-MM-DD; default: today, UTC
+
+Keygen:
+  -o, --out <file>  the key file to write (required)
+  --encrypt         write a passphrase-protected key file rather than a plain
+                    PKCS#8 PEM; the passphrase is read the way seal reads one, so
+                    --passphrase-file, CHARTER_PASSPHRASE, or a prompt. Only a
+                    file written this way is worth anything to someone who
+                    finds it, and it is worth exactly what the passphrase is
+  --passphrase-file <file>
+                    the passphrase, on the first line of this file; passing it
+                    implies --encrypt
+  --force           overwrite an output file that already exists
 
 Inspect prints what a file claims and never a verdict; run verify for one.
 
@@ -405,6 +438,142 @@ async function readTextFile(path, verb) {
   return { bytes: input.bytes, text: decoded.text };
 }
 
+/**
+ * One line from standard input, with echo off when there is a terminal to turn it off on.
+ *
+ * Resolves `null` when the input ends before a line is complete, which is what a closed
+ * or empty standard input does — and that has to resolve rather than wait, because a
+ * command that hangs for input nobody will type is worse than one that refuses.
+ *
+ * `process.stdin.setRawMode` exists only where there is a terminal. With a pipe the
+ * bytes arrive as they were written and the newline ends the line, which is also how
+ * this is tested.
+ *
+ * @returns {Promise<string | null>}
+ */
+function readPassphraseLine() {
+  return new Promise((resolve) => {
+    const stdin = process.stdin;
+    const interactive = stdin.isTTY === true && typeof stdin.setRawMode === 'function';
+    if (interactive) process.stderr.write('passphrase: ');
+    let text = '';
+    const finish = (value) => {
+      stdin.removeListener('data', onData);
+      stdin.removeListener('end', onEnd);
+      if (interactive) {
+        stdin.setRawMode(false);
+        process.stderr.write('\n');
+      }
+      stdin.pause();
+      resolve(value);
+    };
+    const onEnd = () => finish(null);
+    const onData = (chunk) => {
+      for (const character of String(chunk)) {
+        if (character === '\n' || character === '\r') return finish(text);
+        if (character === '\u0003') {
+          // Ctrl-C at a prompt is a person changing their mind, not a refusal to
+          // report: the shell's own convention for that is what happens.
+          process.stderr.write('\n');
+          process.exit(130);
+        }
+        if (character === '\u007f' || character === '\b') {
+          text = text.slice(0, -1);
+          continue;
+        }
+        text += character;
+      }
+      return undefined;
+    };
+    stdin.on('data', onData);
+    stdin.on('end', onEnd);
+    if (interactive) stdin.setRawMode(true);
+    stdin.resume();
+  });
+}
+
+/**
+ * The passphrase to open a key file with, from wherever this command allows one to come.
+ *
+ * Three sources, in this order, and no fourth:
+ *
+ *   1. `--passphrase-file <path>` — the first line of the file, less one line ending.
+ *      The first line rather than the whole file, because that is what a file written
+ *      by `echo` or by an editor holds, and because a passphrase with a newline in it
+ *      cannot be typed at a prompt;
+ *   2. `CHARTER_PASSPHRASE` in the environment;
+ *   3. a line from standard input, which is the terminal when there is one, and a pipe
+ *      when there is not.
+ *
+ * A prompt is refused rather than attempted when standard input is a terminal but
+ * standard error is not: the question would be written where nobody can see it and the
+ * command would wait for an answer to a question that was never asked in front of
+ * anybody. That is not a hypothetical — it is what this command did, once, for five
+ * minutes, before the guard was added.
+ *
+ * **A passphrase given on the command line is refused**, in `main()`, before any verb
+ * sees it: an argument is kept by the shell's history and is readable from the process
+ * list by anything running as the same user, and both of those outlive the command.
+ * Refusing it centrally is what makes the rule hold for every verb at once.
+ *
+ * @param {{ options: Record<string, string | boolean> }} parsed
+ * @param {string} verb
+ * @returns {Promise<{ passphrase: string } | { code: number }>}
+ */
+async function passphraseFrom(parsed, verb) {
+  const file = parsed.options['--passphrase-file'];
+  if (typeof file === 'string') {
+    const read = await readTextFile(file, verb);
+    if (!('text' in read)) return read;
+    const first = read.text.split('\n')[0].replace(/\r$/, '');
+    if (first === '') {
+      return {
+        code: refusal(
+          verb,
+          REASON.MALFORMED,
+          `${file} holds no passphrase on its first line, and an empty passphrase is not one: it would be the same as writing the key in the clear`,
+          EXIT_REFUSED,
+        ),
+      };
+    }
+    return { passphrase: first };
+  }
+
+  const fromEnvironment = process.env.CHARTER_PASSPHRASE;
+  if (typeof fromEnvironment === 'string' && fromEnvironment !== '') {
+    return { passphrase: fromEnvironment };
+  }
+
+  // A prompt nobody can see is worse than a refusal. With standard error redirected, the
+  // question goes into a file and the command then waits for an answer that was never
+  // asked in front of anybody — and waits until it is killed. This guard exists because
+  // that happened while this feature was being built: `charter seal --key <armored> -o x
+  // 2> log` sat for five minutes with the prompt in `log`.
+  if (process.stdin.isTTY === true && process.stderr.isTTY !== true) {
+    return {
+      code: refusal(
+        verb,
+        REASON.MISSING,
+        'a passphrase was needed and standard error is redirected, so a prompt would have gone where nobody can read it; pass --passphrase-file <file> or set CHARTER_PASSPHRASE instead of answering a question that cannot be shown',
+        EXIT_NO_INPUT,
+      ),
+    };
+  }
+
+  const typed = await readPassphraseLine();
+  if (typed === null || typed === '') {
+    return {
+      code: refusal(
+        verb,
+        REASON.MISSING,
+        'no passphrase was given and none could be read: pass --passphrase-file <file> or set CHARTER_PASSPHRASE, or run this where there is a terminal to prompt on',
+        EXIT_NO_INPUT,
+      ),
+    };
+  }
+  return { passphrase: typed };
+}
+
 /** What each place a title can come from is called, in a report. */
 const TITLE_ORIGIN_WORDS = Object.freeze({
   stated: 'stated on the command line',
@@ -453,6 +622,7 @@ async function runVerify(argv) {
  */
 const WRITE_FLAGS = Object.freeze({
   '--key': 'value',
+  '--passphrase-file': 'value',
   '-o': 'value',
   '--out': 'value',
   '--title': 'value',
@@ -529,6 +699,16 @@ async function runSeal(argv) {
   const keyFile = await readTextFile(keyPath, 'seal');
   if (!('text' in keyFile)) return keyFile.code;
 
+  // A passphrase is asked for only when the key file is one that needs it. A PEM is
+  // read exactly as it always was, and prompting for a passphrase over a key that has
+  // none would be asking a question with no answer.
+  let passphrase;
+  if (isKeyFile(keyFile.text)) {
+    const resolved = await passphraseFrom(parsed, 'seal');
+    if ('code' in resolved) return resolved.code;
+    passphrase = resolved.passphrase;
+  }
+
   // The output is looked at before the work, so a refusal costs nothing and no
   // file is left half-written. `EXTRA` is this vocabulary's name for "something
   // is already there that this call did not put there", and a seal does not
@@ -542,6 +722,7 @@ async function runSeal(argv) {
     seal({
       content: contentFile.bytes,
       key: keyFile.text,
+      passphrase,
       content_name: basename(content.name),
       title: text('--title'),
       author: text('--author'),
@@ -640,6 +821,14 @@ async function runEdit(argv) {
   const keyFile = await readTextFile(keyPath, 'edit');
   if (!('text' in keyFile)) return keyFile.code;
 
+  // A passphrase is asked for only when the key file is one that needs it, as in a seal.
+  let passphrase;
+  if (isKeyFile(keyFile.text)) {
+    const resolved = await passphraseFrom(parsed, 'edit');
+    if ('code' in resolved) return resolved.code;
+    passphrase = resolved.passphrase;
+  }
+
   // As in a seal: the output is looked at before the work, so an edit that would
   // overwrite a file it was not told to overwrite costs nothing and writes none.
   if (parsed.options['--force'] !== true && (await exists(outPath))) {
@@ -652,6 +841,7 @@ async function runEdit(argv) {
       artifact: artifact.bytes,
       content: contentFile.bytes,
       key: keyFile.text,
+      passphrase,
       title: text('--title'),
       author: text('--author'),
       created_at: typeof stated === 'string' ? stated : parsed.options['--now'] === true ? nowUtcSeconds() : undefined,
@@ -928,22 +1118,42 @@ async function runOpen(argv) {
  * @param {object} pair
  * @returns {string}
  */
-function keygenReport(path, pair) {
+function keygenReport(path, pair, passphrase = undefined) {
   /** @type {string[]} */
   const out = [];
-  out.push(`wrote  ${path}  (Ed25519 private key, PKCS#8 PEM)`);
+  out.push(pair.encrypted ? `wrote  ${path}  (Ed25519 private key, encrypted with a passphrase)` : `wrote  ${path}  (Ed25519 private key, PKCS#8 PEM, not encrypted)`);
   out.push('');
   out.push(`  key id  ${pair.key_id}`);
   out.push('');
   out.push('  this file is the private key. a .charter file carries only the public key, so');
   out.push('  anyone holding this file can sign as you, and nobody can recover it from an');
-  out.push('  artifact: keep it where a private key belongs, and seal with `--key <file>`.');
+  out.push('  artifact.');
+  out.push('');
+  if (pair.encrypted) {
+    out.push('  the passphrase is the whole of the protection: this file can be attacked');
+    out.push('  offline by anyone who has it, and nothing in it can stop them, so the only');
+    out.push('  thing between it and your signature is what each guess costs — scrypt at');
+    out.push(`  ${SCRYPT_LOG_N} as log2(N), which is ${Math.round((128 * (2 ** SCRYPT_LOG_N) * SCRYPT_R) / (1024 * 1024))} MiB and about a third of a second per attempt here.`);
+    out.push('  Length is the lever you have: a longer passphrase is the only thing that makes');
+    out.push('  that number matter. Keep the file where a private key belongs, and pass');
+    out.push('  `--passphrase-file <file>` or set CHARTER_PASSPHRASE when you sign with it.');
+    if (typeof passphrase === 'string' && passphrase.length < SHORT_PASSPHRASE) {
+      out.push('');
+      out.push(`  note: that passphrase is ${passphrase.length} characters. This command does not refuse it —`);
+      out.push('  the format cannot measure how much a passphrase is worth — but at this cost a');
+      out.push('  short one is a short search.');
+    }
+  } else {
+    out.push('  this file is not encrypted, so anyone who can read it can sign as you. To write');
+    out.push('  one that is, pass `--encrypt` (which asks for a passphrase), or');
+    out.push('  `--passphrase-file <file>`, and read the note it prints.');
+  }
   out.push('');
   return `${out.join('\n')}\n`;
 }
 
 /**
- * `charter keygen -o <key.pem> [--force]`
+ * `charter keygen -o <key.pem> [--encrypt] [--force]`
  *
  * Key generation is here for one reason: the key file `seal --key` reads has to
  * come from somewhere, and the other way to make one — `openssl genpkey
@@ -954,7 +1164,7 @@ function keygenReport(path, pair) {
  * @returns {Promise<number>}
  */
 async function runKeygen(argv) {
-  const parsed = readArguments(argv, { '-o': 'value', '--out': 'value', '--force': 'flag' });
+  const parsed = readArguments(argv, { '-o': 'value', '--out': 'value', '--force': 'flag', '--encrypt': 'flag', '--passphrase-file': 'value' });
   if ('error' in parsed) return usageError(`charter keygen: ${parsed.error}`);
   if (parsed.names.length > 0) {
     return usageError(`charter keygen: keygen writes one file and was given a name it does not act on: ${parsed.names[0]}`);
@@ -971,13 +1181,28 @@ async function runKeygen(argv) {
     );
   }
 
-  const produced = await produce('keygen', () => generateKeyPair());
+  // Whether a key file is encrypted is decided by the command that was typed and not by
+  // the environment: `--encrypt` asks for it and `--passphrase-file` implies it, and
+  // `CHARTER_PASSPHRASE` alone does not. An environment variable that changed the shape
+  // of a generated file would mean two people running the same command on two machines
+  // got two different kinds of key, which is the sort of surprise this project spends
+  // its tests preventing.
+  const encrypt = parsed.options['--encrypt'] === true || typeof parsed.options['--passphrase-file'] === 'string';
+  /** @type {string | undefined} */
+  let passphrase;
+  if (encrypt) {
+    const resolved = await passphraseFrom(parsed, 'keygen');
+    if ('code' in resolved) return resolved.code;
+    passphrase = resolved.passphrase;
+  }
+
+  const produced = await produce('keygen', () => generateKeyPair(passphrase === undefined ? {} : { passphrase }));
   if (!produced.ok) return produced.code;
 
-  const written = await writeOutput(outPath, utf8Encode(produced.value.private_pem), 0o600);
+  const written = await writeOutput(outPath, utf8Encode(produced.value.private_text), 0o600);
   if (!written.ok) return refusal('keygen', REASON.MALFORMED, `${outPath} could not be written: ${written.detail}`, EXIT_NO_OUTPUT);
 
-  process.stdout.write(keygenReport(outPath, produced.value));
+  process.stdout.write(keygenReport(outPath, produced.value, passphrase));
   return 0;
 }
 
@@ -995,6 +1220,21 @@ async function main() {
     process.stdout.write(USAGE);
     return 0;
   }
+
+  // Refused centrally rather than inside a verb, so that the rule holds for all of them
+  // at once and no later verb can forget it. A passphrase on a command line is kept by
+  // the shell's history and is readable from the process list by anything running as
+  // the same user, and both of those outlive the command by a long time.
+  if (rest.includes('--passphrase')) {
+    process.stderr.write(
+      "charter: --passphrase is refused: a passphrase on a command line is kept by the shell's\n" +
+        'history and is readable from the process list, and both outlive the command.\n' +
+        'Pass --passphrase-file <file>, or set CHARTER_PASSPHRASE, or let the command\n' +
+        'prompt for one at a terminal.\n',
+    );
+    return EXIT_USAGE;
+  }
+
   if (command === 'verify') return runVerify(rest);
   if (command === 'seal') return runSeal(rest);
   if (command === 'edit') return runEdit(rest);

@@ -34,6 +34,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
+import { generateKeyPairSync } from 'node:crypto';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -42,6 +43,7 @@ import { fileURLToPath } from 'node:url';
 
 import { serveRepository } from '../editor/serve.mjs';
 import { generateKeyPair } from '../producer/key.js';
+import { sealKeyFile } from '../producer/keyfile.js';
 import { verify } from '../verifier/verify.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -819,7 +821,7 @@ test('the editor in a real browser', { timeout: 300000 }, async (t) => {
     t.after(() => rmSync(work, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
     const key = await generateKeyPair();
     const keyPath = join(work, 'key.pem');
-    writeFileSync(keyPath, key.private_pem);
+    writeFileSync(keyPath, key.private_text);
     const contentText = '# A browser-sealed draft\n\nSealed in a page, with Web Crypto, by the editor.\n';
     const contentPath = join(work, 'draft.md');
     writeFileSync(contentPath, contentText, 'utf8');
@@ -827,7 +829,7 @@ test('the editor in a real browser', { timeout: 300000 }, async (t) => {
 
     const page = await browser.evaluate(`(async () => {
       const set = (id, value) => { const node = document.getElementById(id); node.value = value; node.dispatchEvent(new Event('input', { bubbles: true })); };
-      set('w-key-text', ${JSON.stringify(key.private_pem)});
+      set('w-key-text', ${JSON.stringify(key.private_text)});
       set('w-content', ${JSON.stringify(contentText)});
       set('w-title', ${JSON.stringify(fixed.title)});
       set('w-author', ${JSON.stringify(fixed.author)});
@@ -969,7 +971,7 @@ test('the editor in a real browser', { timeout: 300000 }, async (t) => {
     t.after(() => rmSync(work, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
     const key = await generateKeyPair();
     const keyPath = join(work, 'key.pem');
-    writeFileSync(keyPath, key.private_pem);
+    writeFileSync(keyPath, key.private_text);
     const base = '# A draft with a history\n\nThe first revision.\n';
     const basePath = join(work, 'base.md');
     writeFileSync(basePath, base, 'utf8');
@@ -990,7 +992,7 @@ test('the editor in a real browser', { timeout: 300000 }, async (t) => {
     const before = readdirSync(downloads);
     const state = await browser.evaluate(`(async () => {
       const set = (id, value) => { const node = document.getElementById(id); node.value = value; node.dispatchEvent(new Event('input', { bubbles: true })); };
-      set('w-key-text', ${JSON.stringify(key.private_pem)});
+      set('w-key-text', ${JSON.stringify(key.private_text)});
       set('w-content', ${JSON.stringify(revised)});
       set('w-author', ${JSON.stringify(fixed.author)});
       set('w-summary', ${JSON.stringify(fixed.summary)});
@@ -1049,7 +1051,7 @@ test('the editor in a real browser', { timeout: 300000 }, async (t) => {
     const other = await generateKeyPair();
     const refused = await browser.evaluate(`(async () => {
       const node = document.getElementById('w-key-text');
-      node.value = ${JSON.stringify(other.private_pem)};
+      node.value = ${JSON.stringify(other.private_text)};
       node.dispatchEvent(new Event('input', { bubbles: true }));
       await new Promise((resolve) => setTimeout(resolve, 300));
       document.getElementById('append').click();
@@ -1063,6 +1065,33 @@ test('the editor in a real browser', { timeout: 300000 }, async (t) => {
     assert.equal(refused.messageClass, 'message message-fail', 'a second key must be refused, not added');
     assert.match(refused.message, /MISMATCH/, `the refusal carries the format's own reason code: ${refused.message}`);
     assert.ok(refused.message.includes(other.key_id), 'the refusal names the key the form holds');
+  });
+
+  await t.test('a passphrase-protected key file is refused by name, not misread as a PEM', async () => {
+    // The page cannot open one: a browser takes no passphrase when it imports a key, and
+    // a page that derived one of its own would be a second key derivation for one format.
+    // What matters is that it says which file it was handed, rather than complaining about
+    // a header inside a file that has no header to complain about.
+    const { privateKey } = generateKeyPairSync('ed25519');
+    const protectedText = sealKeyFile(new Uint8Array(privateKey.export({ type: 'pkcs8', format: 'der' })), 'a passphrase for a page that cannot use one');
+
+    const page = await browser.evaluate(`(async () => {
+      const node = document.getElementById('w-key-text');
+      node.value = ${JSON.stringify(protectedText)};
+      node.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      document.getElementById('seal').click();
+      for (let attempt = 0; attempt < 200; attempt += 1) {
+        const message = document.getElementById('w-message');
+        if (message.className.includes('message-done') || message.className.includes('message-fail')) break;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+      return { messageClass: document.getElementById('w-message').className, message: document.getElementById('w-message').textContent };
+    })()`);
+    assert.equal(page.messageClass, 'message message-fail', 'a protected key is not silently accepted');
+    assert.match(page.message, /UNSUPPORTED_FEATURE/, 'it is refused as a thing this build does not do here, not as a malformed key');
+    assert.match(page.message, /passphrase-protected key file/, 'and the refusal names what it was handed');
+    assert.match(page.message, /--passphrase-file/, 'and says where the passphrase can be used instead');
   });
 
   await t.test('the page made no request beyond its own files, and threw nothing', async () => {

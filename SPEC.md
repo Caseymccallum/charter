@@ -1142,7 +1142,8 @@ check's `id`, `status` and `reason_code`, and each limitation's `id`; `file` and
 The commands that read out, write and describe files are the producer's:
 
 ```
-node cli/charter.js keygen -o key.pem                  # an Ed25519 key, PKCS#8 PEM
+node cli/charter.js keygen -o key.pem                  # an Ed25519 key, as a PKCS#8 PEM
+node cli/charter.js keygen -o key.file --encrypt        # the same key behind a passphrase (15.7)
 node cli/charter.js seal <content.md> --key <key.pem> -o <out.charter>
 node cli/charter.js edit <file.charter> <content.md> --key <key.pem> -o <out.charter>
 node cli/charter.js inspect <file.charter>             # what a file claims
@@ -1460,7 +1461,15 @@ command line (`MISMATCH`). `open` refuses what it cannot justify calling the
 document: one it cannot read, with the reason code the reader gave for that file;
 one that declares a format this build does not implement (`UNSUPPORTED_FEATURE`);
 one that holds no content entry (`MISSING`); and an output path that is already
-taken (`EXTRA`). Every one of those is a reason a reader would give
+taken (`EXTRA`). A writer handed a key file refuses what it cannot open: a file that
+is not the shape 15.7 defines (`MALFORMED`, and `NON_CANONICAL_ENCODING` for a
+character outside the base64 alphabet), a container version or a key derivation
+function this build does not implement (`UNSUPPORTED_VERSION`,
+`UNSUPPORTED_FEATURE`), parameters above the ceilings of 15.7 (`LIMIT_EXCEEDED`), an
+empty passphrase (`MALFORMED`), and a passphrase that does not open the file or a
+record that was altered after it was written (`MISMATCH`, which is one refusal for
+both because telling them apart is a service to whoever is guessing). Every one of
+those is a reason a reader would give
 about the same file, which is the point: a caller branches on one vocabulary and
 not two. A producer with a private set of failure names would be a second
 vocabulary for one format, and a caller who had to learn both would eventually
@@ -1556,6 +1565,68 @@ and on every machine, because nothing here reads a clock, a file, or a random
 source — and a later entry's `parent` is a function of the artifact it was given
 rather than of when it was run.
 
+### 15.7 A key file
+
+A `.charter` file carries a public key and never a private one, so the private key
+lives somewhere else — on a disk, where anyone who can read the file can sign as
+its holder. `keygen --encrypt` writes a **key file**: a private key at rest behind a
+passphrase. It is not an artifact, it is not a `.charter` file, and nothing in
+sections 2 through 11 applies to it; it is specified here because a format this
+project tells a reader to rely on should be a format this project writes down.
+
+It is armored text: a `BEGIN` line, base64 wrapped at 64 characters, and an `END`
+line, labelled `CHARTER ENCRYPTED KEY` so that a reader can tell it from a PEM, and
+so that a PEM is never mistaken for one. Between those lines is one record of fixed
+fields:
+
+| Offset | Size | Field | Value |
+| --- | --- | --- | --- |
+| 0 | 4 | magic | `CHKY` |
+| 4 | 1 | container version | `1` |
+| 5 | 1 | key derivation function | `1`, scrypt |
+| 6 | 1 | cipher | `1`, AES-256-GCM |
+| 7 | 1 | reserved | `0` |
+| 8 | 4 | scrypt `log2(N)`, big-endian | `17` |
+| 12 | 4 | scrypt `r`, big-endian | `8` |
+| 16 | 4 | scrypt `p`, big-endian | `1` |
+| 20 | 16 | salt | from the random source |
+| 36 | 12 | AES-GCM initialisation vector | from the random source |
+| 48 | 4 | ciphertext length, big-endian | the PKCS#8 key, in bytes |
+| 52 | 16 | AES-GCM authentication tag | |
+| 68 | n | ciphertext: the PKCS#8 key, encrypted | |
+
+`N = 2^17`, `r = 8`, `p = 1` needs 128 MiB of memory and about a third of a second
+per attempt on a current machine. The cost is the point: an attacker who has the file
+can try passphrases against it offline forever, and no rule can prevent that, so the
+only lever is what each attempt costs, and memory is what makes it expensive to try
+many at once.
+
+**The parameters are read from the file, not from this build's preferences.** A file
+written today must open under a release that raised the cost, so a reader uses the
+`log2(N)`, `r` and `p` that are in the record. The passphrase is normalized to NFC
+before it is used, because a passphrase typed on one platform and the same passphrase
+typed on another are otherwise different bytes.
+
+**The parameters are also input from a file the reader did not write.** A key file
+can be handed to someone, so a record is refused rather than obeyed when it asks for
+`log2(N)` above 20, or for parameters needing more than 512 MiB: the first value
+above a ceiling is a refusal, exactly as section 3.7 refuses an artifact that is
+larger than a declared limit. A reader that can be made to allocate without bound is
+a reader that can be made to hang.
+
+**Nothing in the record identifies the key.** There is no key id and no public key in
+the clear, so a key file's contents are known only to whoever holds the passphrase,
+and finding the file does not confirm that a given artifact was signed with it.
+
+The tag is the only check there is: it fails when the passphrase is wrong and it
+fails when the record has been altered, and a refusal does not say which of the two
+happened. Distinguishing them would tell whoever is guessing whether they are getting
+warmer, and the format declines to.
+
+An unencrypted PKCS#8 PEM is a key file too — it is what `keygen` writes without
+`--encrypt`, and what `openssl genpkey -algorithm ed25519` writes — and a writer
+accepts either. Which one it was given is decided by the bytes and never by the
+file's name.
 
 ## 16. A second reading
 

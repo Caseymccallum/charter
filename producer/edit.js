@@ -165,7 +165,7 @@ export async function edit(request, options = {}) {
 
   checkContent(request.content);
   const time = decideTime(request.created_at);
-  const loaded = await loadKey(request.key);
+  const loaded = await loadKey(request.key, request.passphrase);
 
   // One key per artifact: section 8 says an entry naming a key nobody can check
   // is an entry that proves nothing, and `L1.PROVENANCE.KEYS` is the check that
