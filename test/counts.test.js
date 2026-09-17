@@ -195,7 +195,41 @@ const ADVERSARIAL = adversarialRows().filter((name) => !PHASE_1.includes(name));
 const TOOL_WRITTEN = toolWrittenNames();
 
 /**
- * What a stated number is checked against: a record, a directory, or a file.
+ * The class each row of the audit's own table ends in.
+ *
+ * `docs/spec-declarations.md` is the document that asked what holds each
+ * declaration to the document, and its own totals are the kind of number this
+ * file exists to read back: how many list-shaped claims there are, how many a
+ * test holds, and how many nothing does. The last cell of each row is the
+ * classification, so the table can be counted without a second copy of it here.
+ *
+ * A row is `**none**` when nothing reads the document for that claim, and
+ * `not applicable` when there is no code copy to hold the document to. Anything
+ * else names a test, and a named test is a claim held.
+ *
+ * @returns {string[]} the last cell of every row, in the table's order
+ */
+function declarationRows() {
+  /** @type {string[]} */
+  const rows = [];
+  for (const line of read('docs', 'spec-declarations.md').split('\n')) {
+    if (!line.startsWith('| ')) continue;
+    const cells = line.split('|').slice(1, -1).map((cell) => cell.trim());
+    if (cells.length !== 6) continue;
+    if (cells[0] === '#' || /^-+$/.test(cells[0])) continue;
+    rows.push(cells[5]);
+  }
+  return rows;
+}
+
+/** The audit's rows, and what each of them ends in. */
+const DECLARATIONS = declarationRows();
+const NO_CODE_COPY = DECLARATIONS.filter((cell) => cell === 'not applicable').length;
+const UNHELD = DECLARATIONS.filter((cell) => cell.startsWith('**none**')).length;
+
+/**
+ * What a stated number is checked against: a record, a directory, a file, or
+ * the table of a document.
  *
  * @type {Record<string, number>}
  */
@@ -210,6 +244,10 @@ const MEASURED = Object.freeze({
   'tool-written artifacts': TOOL_WRITTEN.length,
   'test files': TEST_FILES.length,
   'editor page bytes': statSync(join(ROOT, 'editor', 'index.html')).size,
+  'declarations audited': DECLARATIONS.length,
+  'declarations held': DECLARATIONS.length - NO_CODE_COPY - UNHELD,
+  'declarations unheld': UNHELD,
+  'declarations with no code copy': NO_CODE_COPY,
 });
 
 /**
@@ -258,6 +296,31 @@ const CLAIMS = Object.freeze([
   { file: 'implementations/python/README.md', pattern: /\*\*(\d+) fixtures, \d+ matched exactly\.\*\*/, counts: ['kit recorded answers'] },
   { file: 'implementations/python/README.md', pattern: /reference CLI's output for all (\d+) fixtures/, counts: ['kit recorded answers'] },
   { file: 'implementations/python/README.md', pattern: /and (\d+) hand-built artifacts that the kit does not/, counts: ['probe artifacts'] },
+  {
+    file: 'README.md',
+    pattern: /(\d+) claims, (\d+) held, (\d+) held by nothing/,
+    counts: ['declarations audited', 'declarations held', 'declarations unheld'],
+  },
+  {
+    file: 'docs/spec-declarations.md',
+    pattern: /List-shaped claims in `SPEC\.md` \| \*\*(\d+)\*\*/,
+    counts: ['declarations audited'],
+  },
+  {
+    file: 'docs/spec-declarations.md',
+    pattern: /with a code copy, held to the document by a test \| \*\*(\d+)\*\*/,
+    counts: ['declarations held'],
+  },
+  {
+    file: 'docs/spec-declarations.md',
+    pattern: /with a code copy, held by nothing \| \*\*(\d+)\*\*/,
+    counts: ['declarations unheld'],
+  },
+  {
+    file: 'docs/spec-declarations.md',
+    pattern: /with no code copy at all \| \*\*(\d+)\*\*/,
+    counts: ['declarations with no code copy'],
+  },
 ]);
 
 /**

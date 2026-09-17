@@ -4,6 +4,42 @@ Recorded because they are decisions about published behaviour, not internal
 tidying. The format identifier in `manifest.format` changes when section 14 of
 [SPEC.md](SPEC.md) changes; this file records what changed, when, and why.
 
+## Unreleased — the audit of the document's own lists, and fourteen gaps left open
+
+Step 20 found four declarations that code states a second time while no test held
+them to the document. This pass asked how many more there were.
+`docs/spec-declarations.md` audits every list-shaped rule in `SPEC.md` — a field
+list, an enumeration, a ceiling, a counted sentence, a "the set of X is Y" — and
+found **36**. Twenty are held by a test that reads the document. **Fourteen are
+held by nothing**, and each of the fourteen is named there with the code that
+declares it again.
+
+**No test was added for those fourteen.** Fourteen tests, one more sentence read
+out of `SPEC.md` per test, would be fourteen more readers written by hand — and
+eleven of the fourteen gaps are the same mechanical shape. The rule this work is
+under is that more than three gaps is answered by a mechanism rather than by more
+tests, so the audit stops here and reports: the mechanism is a declaration
+registry, one row naming a spec locator, a code accessor, and how the two are
+compared, driven by one reader, with the enforcement half being that an exported
+constant under `verifier/**` that mirrors a `SPEC.md` statement must appear in
+the registry — checked in both directions the way §10's registry is. That is a
+change to the suite's structure and it is the next step.
+
+Three of the findings are worth naming outside the audit. §10's four statuses and
+§10's three verdicts *with their exit codes* are held by `test/result.test.js` —
+but to a list transcribed **in that test**, not to the document, so a renamed
+status would keep the suite green while the verdict printed a name the document
+does not define. And in §6 ("Three requirements and no others") and §9 ("Three
+consequences follow") the check ids are held and the **count word is read by
+nothing**, so a section can gain a bullet while its sentence still says three.
+
+The audit's own totals are read back by `test/counts.test.js`, so the document
+that asks what holds these claims is held by the same rule it found broken.
+
+`docs/first-user.md` is unchanged and still empty: the session requires a person,
+none was available, and a transcript written by an agent that had read `SPEC.md`
+would be the one thing that document exists to prevent.
+
 ## Unreleased — the six field lists, and the arrays a verifier is handed
 
 Sections 5 and 7 each introduce a table with a sentence that counts it. Section 5
@@ -28,7 +64,13 @@ decoration.** `findUnknownField` is handed them to answer
 one of them is a field the verifier *accepts* while the document forbids it, and
 a name dropped from one is a field the verifier *rejects* while the document
 allows it. Either is a verdict that disagrees with the specification, and until
-now both would have left the suite green.
+now both would have left the suite green. **The two directions are not the same
+size of mistake** — a false PASS has signed off on bytes the document forbids,
+while a false FAIL has only refused a file it could have read, which is why the
+check is written over both: `EXTRA_FIELDS` accepting a field it should have
+reported and `FIELDS` rejecting a field it should have accepted are one drift
+seen from two ends, and a comparison that held in one direction would have
+caught whichever of the two came second.
 
 `test/spec.test.js` now reads all six lists from the tables themselves — the
 nested ones are read out of the row that describes them, so no name is
