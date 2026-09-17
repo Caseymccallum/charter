@@ -18,6 +18,13 @@
  * quietly. If that sentence is ever reworded, point this test at the new wording
  * — the point of it is that the spec cannot change what it declares by accident.
  *
+ * The other list here is section 12's command block, and it went stale the same
+ * way. `cli/charter.js` dispatches six verbs and section 12 showed five, because
+ * the block was written before `edit` landed: the document described a command
+ * line nobody has, and nothing read it back. So the verbs are taken from three
+ * places — the dispatch table, the usage block the command line prints, and
+ * section 12's command lines — and all three have to be the same set.
+ *
  * @module test/spec
  */
 
@@ -110,6 +117,54 @@ test('section 10 names every check id in the registry, and invents none', () => 
   }
   for (const id of CHECK_IDS) {
     assert.equal(IDS_NAMED.includes(id), true, `${id} is in the registry and section 10 never names it`);
+  }
+});
+
+/** The source of the command line, which two of the three verb lists live in. */
+const CLI = readFileSync(join(ROOT, 'cli', 'charter.js'), 'utf8');
+
+/**
+ * The verbs the command line can be asked to run, read from its dispatch table.
+ *
+ * @returns {string[]}
+ */
+function dispatchedVerbs() {
+  return [...CLI.matchAll(/if \(command === '([a-z]+)'\)/g)].map((match) => match[1]).sort();
+}
+
+/**
+ * The verbs the command line states in its own usage text.
+ *
+ * @returns {string[]}
+ */
+function usageVerbs() {
+  const block = /const HELP = `([\s\S]*?)`;/.exec(CLI);
+  assert.notEqual(block, null, 'cli/charter.js states its usage in a `HELP` constant, and this test reads that block');
+  return [...new Set([...block[1].matchAll(/^ {2}charter ([a-z]+)/gm)].map((match) => match[1]))].sort();
+}
+
+/**
+ * The verbs section 12's command lines name.
+ *
+ * @returns {string[]}
+ */
+function documentedVerbs() {
+  const running = section('12. Running it');
+  return [...new Set([...running.matchAll(/node cli\/charter\.js ([a-z]+)/g)].map((match) => match[1]))].sort();
+}
+
+test('the verbs section 12 shows are the verbs the command line dispatches', () => {
+  const dispatched = dispatchedVerbs();
+  assert.ok(dispatched.length > 0, 'cli/charter.js dispatches verbs in a table this test can read');
+  for (const [what, list] of [['its own usage text', usageVerbs()], ['section 12', documentedVerbs()]]) {
+    const missing = dispatched.filter((verb) => !list.includes(verb));
+    assert.deepEqual(
+      missing,
+      [],
+      `cli/charter.js dispatches ${missing.join(', ')} and ${what} never names ${missing.length === 1 ? 'it' : 'them'}, so the document shows a command line nobody has`,
+    );
+    const invented = list.filter((verb) => !dispatched.includes(verb));
+    assert.deepEqual(invented, [], `${what} names ${invented.join(', ')}, and the command line dispatches no such command`);
   }
 });
 

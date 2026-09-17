@@ -1144,6 +1144,7 @@ The commands that write and describe files are the producer's:
 ```
 node cli/charter.js keygen -o key.pem                  # an Ed25519 key, PKCS#8 PEM
 node cli/charter.js seal <content.md> --key <key.pem> -o <out.charter>
+node cli/charter.js edit <file.charter> <content.md> --key <key.pem> -o <out.charter>
 node cli/charter.js inspect <file.charter>             # what a file claims
 node cli/charter.js cite <file.charter>                # one CSL-JSON item
 ```
@@ -1153,9 +1154,12 @@ VERIFIED, `1` INCOMPLETE, `2` BROKEN, `64` the command line was not understood,
 `66` the named file could not be read. The producer adds two, and neither is a
 verdict: `65` the input was refused and the refusal has a reason code from the
 vocabulary in `verifier/status.js`, and `73` the output file could not be
-created. `seal`, `inspect`, `cite` and `keygen` also use `64` and `66`, and
-`inspect` and `cite` exit `65` when a file holds nothing they can read. Section
-14 changes a version when a *verdict* changes; these two codes belong to
+created. `64` is any verb's, and `65` is the producer's refusal, which every
+verb can reach. The other two follow the invocation rather than the verb: `66`
+belongs to the four that read a file named on the command line — `seal`, `edit`,
+`inspect` and `cite` — and `73` to the three that create one: `seal`, `edit` and
+`keygen`. `inspect` and `cite` exit `65` when a file holds nothing they can read.
+Section 14 changes a version when a *verdict* changes; these two codes belong to
 commands that do not produce one.
 
 The verifier needs **Node 20.12 or later**. Two runtime facilities decide that
@@ -1360,9 +1364,10 @@ a claimed title (see 15.3), `created_at` is the time the author states, and
 `content.md` is the document's bytes. It writes **one** provenance entry, with
 `action` `create`, `parent` `null`, and `content_sha256` equal to the digest of
 the content — which is what makes `L2.CHAIN.HEAD_MATCHES_CONTENT` hold for a
-file that was never edited. Writing the later entries of a history is a verb
-this producer does not have, and a reader is not affected by that: the format
-accepts any log section 9 accepts.
+file that was never edited. Writing the entries after it belongs to section 15.6
+rather than here: `seal` writes the first line of a history, and `edit` is the
+verb that adds a line to a history that exists. A reader is not affected by which
+of them wrote a file: the format accepts any log section 9 accepts.
 
 An entry is stored, never deflated. Section 3.3 allows either, and a producer
 that deflated would have artifact bytes that depend on the compressing library:

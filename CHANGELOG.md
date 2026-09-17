@@ -4,6 +4,59 @@ Recorded because they are decisions about published behaviour, not internal
 tidying. The format identifier in `manifest.format` changes when section 14 of
 [SPEC.md](SPEC.md) changes; this file records what changed, when, and why.
 
+## Unreleased — the command line's sixth verb, and the sentence that denied it
+
+`edit` is the producer's second verb, and three sentences about this producer were
+written before it existed. The one that matters is a denial. Section 15.1 ended its
+account of what `seal` writes with:
+
+> Writing the later entries of a history is a verb this producer does not have.
+
+It does have it. Section 15.6 is headed "A later entry" and states that verb's rules
+in full; `producer/edit.js` implements every refusal section 15.5 requires of it;
+`charter edit` has been dispatched by `cli/charter.js` since the pass that added it;
+and `produced-two-entries` is in the kit precisely because the two verbs were run to
+make it. So the sentence was not a stale count but a stale **claim of absence**,
+which is the harder kind to notice: no number moves when it stops being true, and
+nothing in the tree contradicts it unless a reader goes looking.
+
+Section 12 had the matching hole from the other side. It lists "the commands that
+write and describe files", and the list was `keygen`, `seal`, `inspect` and `cite` —
+four verbs, where the command line dispatches five on that side of `verify`. The
+exit-code paragraph underneath was wrong twice for the same reason. It named four
+verbs that "also use `64` and `66`", omitting `edit`; and it gave `keygen` a use of
+`66` that the verb cannot reach, because `66` means a *named file could not be
+read* and `keygen` reads no file — it reads nothing and writes one. Both sentences
+are now the mapping the code actually implements: `64` is any verb's, `65` is the
+producer's refusal, `66` belongs to the four verbs that read a file named on the
+command line (`seal`, `edit`, `inspect`, `cite`), and `73` to the three that create
+one (`seal`, `edit`, `keygen`).
+
+### What the suite checks now
+
+`test/spec.test.js` already held section 10's vocabulary against
+`verifier/status.js`, on the argument that the part of SPEC.md which *declares*
+something cannot be allowed to drift from the thing it declares — that check is how
+`L0.MANIFEST.FORMAT`, a check id section 5 named and the registry never had, was
+caught. Section 12's command block is the same kind of claim, so it is now checked
+the same way: the verbs are read out of three places — the dispatch table and the
+`HELP` block in `cli/charter.js`, and the command lines in section 12 — and all
+three have to be one set, in both directions. A verb the command line dispatches and
+no document shows fails; so does a documented verb with no command behind it. That
+is what would have caught the missing `edit` line the day it appeared.
+
+### What this does not check, and why the README still says its own number
+
+The count of tests is a claim about a run, not about the tree, and this pass moved
+it: `spec.test.js` gained the verb check, so `npm test` prints **172** where the
+README said 171 in three places. Those three are updated, and they stay the one
+number in these documents that the suite cannot hold — a suite cannot run itself to
+read the number it is about to print, and `test/counts.test.js` deliberately leaves
+that kind of count alone. Everything else the README and SPEC.md state about the
+present is read back off the disk: the kit's artifacts and recorded answers, the
+probe's, the corpus's, the Phase 1 and adversarial cases, the one artifact a tool
+wrote, the test files, and the size of the editor's page.
+
 ## Unreleased — two artifacts nobody accounted for, and the counts nobody read back
 
 `charter edit` left the kit one artifact richer and the documentation two counts
