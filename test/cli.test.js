@@ -23,7 +23,7 @@ import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { generateKeyPairSync } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -182,6 +182,11 @@ const VERB_CALLS = Object.freeze({
     missing: () => ['inspect', MISSING_PATH],
     taken: () => ['inspect', artifact('valid'), '-o', TAKEN_PATH],
   },
+  // open reads one file and writes another, so both codes are its own.
+  open: {
+    missing: () => ['open', MISSING_PATH],
+    taken: () => ['open', artifact('valid'), '-o', TAKEN_PATH],
+  },
   cite: {
     missing: () => ['cite', MISSING_PATH],
     taken: () => ['cite', artifact('valid'), '-o', TAKEN_PATH],
@@ -328,4 +333,89 @@ test('the verbs section 12 says create a file are the verbs that exit 73 when it
       );
     }
   }
+});
+
+test('open writes the document back out, byte for byte', () => {
+  const out = join(WORK, 'opened.md');
+  const run = charter(['open', ARTIFACT_PATH, '-o', out]);
+  assert.equal(run.status, 0, run.stderr);
+  assert.equal(run.stdout, '', 'the document went to the named file, so standard output carries nothing');
+  assert.match(run.stderr, /VERIFIED/);
+  assert.deepEqual(
+    readFileSync(out),
+    readFileSync(CONTENT_PATH),
+    'the bytes written are the bytes that were sealed, and not a re-encoding of them',
+  );
+});
+
+test('open writes the document to standard output when no file is named', () => {
+  const run = charter(['open', ARTIFACT_PATH]);
+  assert.equal(run.status, 0, run.stderr);
+  assert.equal(run.stdout, readFileSync(CONTENT_PATH, 'utf8'), 'a pipe carries the document and nothing else');
+  assert.match(run.stderr, /byte\(s\) written to standard output/);
+});
+
+test('a document that does not verify still comes out, with the verdict beside it', () => {
+  const out = join(WORK, 'from-a-tampered-file.md');
+  const run = charter(['open', artifact('content-tampered'), '-o', out]);
+  assert.equal(
+    run.status,
+    0,
+    'the exit code is about whether the bytes were written and not about the verdict: recovering a document from a damaged container is what this verb is for',
+  );
+  assert.match(run.stderr, /BROKEN/);
+  assert.notEqual(readFileSync(out).length, 0, 'the document comes out even though the file does not verify');
+});
+
+test('open will not overwrite a document, and will with --force', () => {
+  const out = join(WORK, 'already-a-document.md');
+  writeFileSync(out, 'something a person wrote\n');
+
+  const refused = charter(['open', ARTIFACT_PATH, '-o', out]);
+  assert.equal(refused.status, 73);
+  assert.match(refused.stderr, /EXTRA/);
+  assert.equal(
+    readFileSync(out, 'utf8'),
+    'something a person wrote\n',
+    'a refusal leaves the file that was already there exactly as it was',
+  );
+
+  const overwritten = charter(['open', ARTIFACT_PATH, '-o', out, '--force']);
+  assert.equal(overwritten.status, 0, overwritten.stderr);
+  assert.deepEqual(readFileSync(out), readFileSync(CONTENT_PATH));
+});
+
+test('open refuses a file whose entries it cannot call the document, rather than guessing', () => {
+  // A format this build does not implement. The identifier is one field of the
+  // manifest, and `charter/9.9` is exactly as long as `charter/0.1`, so replacing
+  // it moves nothing else in the container: the file stays a well-formed ZIP that
+  // declares a version nobody here implements.
+  const bytes = readFileSync(ARTIFACT_PATH);
+  const patched = Buffer.from(bytes.toString('latin1').replaceAll('charter/0.1', 'charter/9.9'), 'latin1');
+  assert.notEqual(
+    patched.toString('latin1'),
+    bytes.toString('latin1'),
+    'the fixture declares the version this test moves, so the patch lands',
+  );
+  const future = join(WORK, 'a-later-version.charter');
+  const neverWritten = join(WORK, 'never-written.md');
+  writeFileSync(future, patched);
+
+  const unimplemented = charter(['open', future, '-o', neverWritten]);
+  assert.equal(unimplemented.status, 65);
+  assert.match(unimplemented.stderr, /UNSUPPORTED_FEATURE/);
+  assert.equal(
+    existsSync(neverWritten),
+    false,
+    'a refused file writes nothing at all: no half a document, and no file to mistake for one',
+  );
+
+  // A file that is not a charter. The reason code is the reader's own, which is the
+  // point of holding one vocabulary rather than growing a second one here.
+  const notACharter = join(WORK, 'not-a-charter.txt');
+  writeFileSync(notACharter, 'this is a text file, and not a container\n');
+  const refused = charter(['open', notACharter]);
+  assert.equal(refused.status, 65);
+  assert.match(refused.stderr, /MALFORMED/);
+  assert.equal(refused.stdout, '', 'nothing comes out of a file that could not be read as a charter');
 });

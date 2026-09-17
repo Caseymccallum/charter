@@ -1139,15 +1139,32 @@ that carry the format are the verdict, the exit code, the `summary` counts, each
 check's `id`, `status` and `reason_code`, and each limitation's `id`; `file` and
 `bytes` describe the invocation, and the prose fields are prose.
 
-The commands that write and describe files are the producer's:
+The commands that read out, write and describe files are the producer's:
 
 ```
 node cli/charter.js keygen -o key.pem                  # an Ed25519 key, PKCS#8 PEM
 node cli/charter.js seal <content.md> --key <key.pem> -o <out.charter>
 node cli/charter.js edit <file.charter> <content.md> --key <key.pem> -o <out.charter>
 node cli/charter.js inspect <file.charter>             # what a file claims
+node cli/charter.js open <file.charter>                # the document it carries
 node cli/charter.js cite <file.charter>                # one CSL-JSON item
 ```
+
+`open` writes out the bytes of `content.md`, so a reader does not have to unzip the
+container to get at the document inside it. It writes to standard output unless `-o`
+names a file, it refuses to overwrite a file that already exists unless `--force` is
+passed, and it prints the verdict beside the document rather than inside it: the
+document goes to standard output and the verdict to standard error, so that a pipe
+carries bytes and nothing else. The bytes it writes are the content entry this
+format's reader read, not a second expansion of the container by another program.
+
+It refuses what it cannot justify calling *the document*: a file whose manifest
+cannot be read, one that declares a format this build does not implement, and one
+that holds no content entry. In each of those the entry names have no fixed meaning,
+so calling one of them the document would be a guess rather than a reading. It does
+not refuse a file that fails to verify: a tampered document still comes out, with
+the verdict printed beside it, because recovering a document from a damaged
+container is a real thing to need and a document that fails is still a document.
 
 Exit codes are five for `verify`, and they are the codes of a verdict: `0`
 VERIFIED, `1` INCOMPLETE, `2` BROKEN, `64` the command line was not understood,
@@ -1156,9 +1173,10 @@ verdict: `65` the input was refused and the refusal has a reason code from the
 vocabulary in `verifier/status.js`, and `73` the output file could not be
 created. `64` is any verb's, and `65` is the producer's refusal, which every
 verb can reach. The other two follow the invocation rather than the verb: `66`
-belongs to the four that read a file named on the command line — `seal`, `edit`,
-`inspect` and `cite` — and `73` to the three that create one: `seal`, `edit` and
-`keygen`. `inspect` and `cite` exit `65` when a file holds nothing they can read.
+belongs to the five that read a file named on the command line — `seal`, `edit`,
+`inspect`, `cite` and `open` — and `73` to the four that create one: `seal`, `edit`,
+`open` and `keygen`. `inspect`, `cite` and `open` exit `65` when a file holds nothing
+they can read.
 Section 14 changes a version when a *verdict* changes; these two codes belong to
 commands that do not produce one.
 
@@ -1438,7 +1456,11 @@ reader gave for that file rather than a name invented here; one whose log holds 
 line to commit to (`MISSING`); one that declares a format this build does not
 implement (`UNSUPPORTED_FEATURE`); one whose manifest holds a field charter/0.1
 gives no rule to (`UNKNOWN_FIELD`); and one whose key is not the key named on the
-command line (`MISMATCH`). Every one of those is a reason a reader would give
+command line (`MISMATCH`). `open` refuses what it cannot justify calling the
+document: one it cannot read, with the reason code the reader gave for that file;
+one that declares a format this build does not implement (`UNSUPPORTED_FEATURE`);
+one that holds no content entry (`MISSING`); and an output path that is already
+taken (`EXTRA`). Every one of those is a reason a reader would give
 about the same file, which is the point: a caller branches on one vocabulary and
 not two. A producer with a private set of failure names would be a second
 vocabulary for one format, and a caller who had to learn both would eventually

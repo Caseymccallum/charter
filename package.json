@@ -29,6 +29,7 @@
     "seal": "node cli/charter.js seal",
     "edit": "node cli/charter.js edit",
     "inspect": "node cli/charter.js inspect",
+    "open": "node cli/charter.js open",
     "cite": "node cli/charter.js cite",
     "keygen": "node cli/charter.js keygen",
     "kit": "node vectors/run.js",

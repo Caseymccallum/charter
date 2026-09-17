@@ -57,17 +57,26 @@ new surface, and it is deliberately last.
 
 ## Phase 1 — the last mile
 
-**1a. `charter open <file.charter> [-o <out.md>]`.** Writes the bytes of `content.md`
-that the verifier already read, so what comes out is the content of a file this
-project checked, rather than a third-party unzip of it. Prints the verdict to stderr
-so the document can be piped, and refuses when the read did not produce content.
+**1a. `charter open <file.charter> [-o <out.md>] [--force]` — done.** It writes the bytes
+of `content.md` that this format's own reader read, so what comes out is the content
+of a file this project checked rather than a third-party unzip of it. The document
+goes to standard output unless `-o` names a file; the verdict goes to standard error,
+so a pipe carries bytes and nothing else.
 
-- Touches `SPEC.md` §12: **yes** — §12's verb table is a listed claim, and
-  `test/spec.test.js` asserts the verbs §12 shows are the verbs the CLI dispatches.
-  A verb added without a spec edit fails the suite. That test is the reason this
-  cannot be done quietly, and it is working as intended.
+- Touches `SPEC.md` §12: **yes, and it would not let us skip it** — §12's verb table
+  is a listed claim, and `test/spec.test.js` asserts the verbs §12 shows are the verbs
+  the command line dispatches. The suite failed until the spec was edited, and it
+  failed again until `cli.test.js` gained a row for the new verb. That is the
+  mechanism working as designed, and it is why this change could not be made quietly.
 - Format identifier: **unchanged.** A verb is not a file.
-- New tests: yes. New registry rows: likely one, if a constant is exported.
+- New tests: yes — five in `test/cli.test.js`: the round trip (seal a document, open
+  it, compare the bytes), the standard-output route, a tampered document still coming
+  out, the refusal to overwrite without `--force`, and the two files it will not call
+  a document.
+- New registry rows: **none.** This file predicted "likely one"; the prediction was
+  wrong, because nothing new is exported from `verifier/**`. It is left here rather
+  than deleted, since a document that quietly corrects itself is the failure mode the
+  whole audit exists to catch.
 - Corpus / probe: **unchanged** — both are about artifacts, not commands.
 
 **1b. The editor appends a revision.** `editor/README.md` already says exactly what

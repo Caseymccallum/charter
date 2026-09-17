@@ -48,6 +48,7 @@ const HELP = `  charter verify <file.charter> [--all] [--json]
   charter seal <content.md> --key <key.pem> -o <out.charter> [options]
   charter edit <file.charter> <content.md> --key <key.pem> -o <out.charter> [options]
   charter inspect <file.charter>
+  charter open <file.charter> [-o <out.md>] [--force]
   charter cite <file.charter> [--title <text>] [--accessed <YYYY-MM-DD>]
   charter keygen -o <key.pem> [--force]
   charter --help`;
@@ -93,6 +94,17 @@ Edit (append one revision to an artifact):
 
   the earlier entries are copied byte for byte: an edit adds a line, and does not
   rewrite, re-sign or reflow the history it was handed.
+
+Open (write out the document a file carries):
+  -o, --out <file>  the file to write; without it the document goes to standard
+                    output, and a shell that redirects output may transcode it, so
+                    a named file is the way to be sure the bytes are the bytes
+  --force           overwrite an output file that already exists
+
+  what is written is the content entry this verifier read, not a second unzip of
+  the container. The exit code says whether the bytes were written; the verdict is
+  printed beside them, because a document that does not verify is still a document,
+  and which one you were handed is yours to know.
 
 Cite:
   --title <text>    state the title rather than deriving it from the document
@@ -793,6 +805,123 @@ async function runCite(argv) {
 }
 
 /**
+ * What `open` wrote, and what the verifier said about the file it came from.
+ *
+ * The verdict goes to stderr and the document to stdout, because they are for
+ * different readers: one is for a pipe, the other is for the person watching it,
+ * and a report mixed into a document would corrupt the only thing this verb exists
+ * to produce.
+ *
+ * @param {string} file the artifact as it was named
+ * @param {object} result the verdict from `verifier/verify.js`
+ * @param {number} bytes how many bytes of content were written
+ * @param {string | null} outPath the file written, or null for standard output
+ * @returns {string}
+ */
+function openReport(file, result, bytes, outPath) {
+  /** @type {string[]} */
+  const out = [];
+  out.push(`  ${bytes} byte(s) written ${outPath === null ? 'to standard output' : `to ${outPath}`}`);
+  out.push(`  ${pad(result.verdict, 11)}${file}: ${result.summary.pass} of ${result.summary.total} checks passed`);
+  if (result.verdict === 'VERIFIED') {
+    out.push('  so this is the document the manifest declares. what a passing verdict does not mean');
+    out.push('  is not a short list, and `charter verify` prints all five statements of it.');
+  } else {
+    out.push('  so these are the bytes the container holds, and this file does not verify: run');
+    out.push('  `charter verify` for what did not check out.');
+  }
+  out.push('');
+  return `${out.join('\n')}\n`;
+}
+
+
+/**
+ * `charter open <file.charter> [-o <out.md>] [--force]`
+ *
+ * Writes out the bytes of the content entry, so the document a file carries can
+ * be read without a second unzip of the container — which is otherwise the only
+ * way to get it, and a way that checks nothing at all.
+ *
+ * What it will not do is hand over an entry it cannot justify calling *the
+ * document*. A container whose manifest cannot be read, whose format this build
+ * does not implement, or which holds no content entry is refused: in each of those
+ * the entry names have no fixed meaning, so calling one of them the document would
+ * be a guess rather than a reading.
+ *
+ * The verdict is printed beside what was written, and it is not a gate. A tampered
+ * document still comes out, with `BROKEN` next to it, because recovering a document
+ * from a damaged container is a real thing to need and the alternative is a tool
+ * that keeps someone's own document from them.
+ *
+ * @param {string[]} argv everything after the subcommand
+ * @returns {Promise<number>}
+ */
+async function runOpen(argv) {
+  const parsed = readArguments(argv, { '-o': 'value', '--out': 'value', '--force': 'flag' });
+  if ('error' in parsed) return usageError(`charter open: ${parsed.error}`);
+  const file = oneName(parsed.names, 'no file was named', 'only one file may be opened at a time, and two were named');
+  if ('error' in file) return usageError(`charter open: ${file.error}`);
+
+  const input = await readFileBytes(file.name);
+  if (!input.ok) {
+    return refusal('open', REASON.MISSING, `${file.name} could not be read: ${input.detail}`, EXIT_NO_INPUT);
+  }
+
+  const read = await readCharter(input.bytes);
+  if (!read.ok) {
+    return refusal(
+      'open',
+      read.reason_code,
+      `${file.name}: nothing in this file could be read as a manifest, so nothing in it can be named as the document (${read.detail})`,
+      EXIT_REFUSED,
+    );
+  }
+
+  const result = await verify(input.bytes);
+  const formatCheck = result.checks.find((check) => check.id === 'L0.FORMAT.IDENTIFIER');
+  if (formatCheck === undefined || formatCheck.status !== 'PASS') {
+    return refusal(
+      'open',
+      REASON.UNSUPPORTED_FEATURE,
+      `${file.name} declares ${read.claims.format}, and this build implements charter/0.1: the entry names this format fixes mean nothing under another version, so no entry is written out as the document`,
+      EXIT_REFUSED,
+    );
+  }
+
+  if (read.content === null) {
+    return refusal(
+      'open',
+      REASON.MISSING,
+      `${file.name} holds no readable content entry, so there is no document to write out`,
+      EXIT_REFUSED,
+    );
+  }
+
+  const named = parsed.options['-o'] ?? parsed.options['--out'];
+  const outPath = typeof named === 'string' ? named : null;
+  if (outPath !== null && parsed.options['--force'] !== true && (await exists(outPath))) {
+    return refusal(
+      'open',
+      REASON.EXTRA,
+      `${outPath} already exists, and a document that is overwritten is one nobody asked to lose; pass --force to overwrite it`,
+      EXIT_NO_OUTPUT,
+    );
+  }
+
+  if (outPath === null) {
+    process.stdout.write(read.content);
+  } else {
+    const written = await writeOutput(outPath, read.content);
+    if (!written.ok) {
+      return refusal('open', REASON.MALFORMED, `${outPath} could not be written: ${written.detail}`, EXIT_NO_OUTPUT);
+    }
+  }
+
+  process.stderr.write(openReport(file.name, result, read.content.length, outPath));
+  return 0;
+}
+
+/**
  * What keygen wrote, and what it is for.
  *
  * @param {string} path
@@ -870,6 +999,7 @@ async function main() {
   if (command === 'seal') return runSeal(rest);
   if (command === 'edit') return runEdit(rest);
   if (command === 'inspect') return runInspect(rest);
+  if (command === 'open') return runOpen(rest);
   if (command === 'cite') return runCite(rest);
   if (command === 'keygen') return runKeygen(rest);
   process.stderr.write(`charter: unknown command: ${command}\n\n${USAGE}`);

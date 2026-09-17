@@ -4,6 +4,39 @@ Recorded because they are decisions about published behaviour, not internal
 tidying. The format identifier in `manifest.format` changes when section 14 of
 [SPEC.md](SPEC.md) changes; this file records what changed, when, and why.
 
+## Unreleased — `open`: the document comes back out
+
+The roadmap's first finding was that nothing in the project could get the document
+out of a `.charter` file. `verify`, `inspect` and `cite` all report *about* a file,
+`seal` and `edit` take a document *in*, and the only command that produced the
+content was an external unzip — a reader that checks nothing, which is the one thing
+this project's first sentence promises a reader never has to fall back on.
+
+`charter open <file.charter> [-o <out.md>] [--force]` writes out the bytes of the
+content entry that this format's own reader read. It writes to standard output
+unless `-o` names a file, the verdict goes to standard error so a pipe carries
+bytes and nothing else, and it will not overwrite a file that already exists
+without `--force`.
+
+What it refuses is anything whose entries it cannot justify calling *the document*:
+a file whose manifest cannot be read, one that declares a format this build does
+not implement (`UNSUPPORTED_FEATURE`), and one that holds no content entry
+(`MISSING`). What it does not refuse is a file that fails to verify: a tampered
+document comes out, with `BROKEN` printed beside it, because recovering a document
+from a damaged container is a real thing to need.
+
+This changes the command line, so section 12 changed with it, under the rule that
+makes that unavoidable: §12's verb table is a listed claim, and `spec.test.js`
+asserts the verbs the document shows are the verbs the command line dispatches — a
+verb added without a spec edit fails the suite. §12's per-verb exit-code sentence
+moved with it, from four verbs that read a named file and three that create one to
+five and four, and `cli.test.js` gained the row its per-verb table requires.
+
+The format did not change. No entry name, field, rule, limit or verdict moved, no
+artifact in the kit was regenerated, and no constant was exported — so the
+declaration registry is untouched and the identifier stays `charter/0.1`. A verb is
+not a file.
+
 ## Unreleased — the entrance, and what the prior art says about it
 
 Nothing about the format changed in this pass. Three documents changed, and the
