@@ -389,17 +389,77 @@ function findBrowser() {
  * runs in the page, which is the point — the tests below are asking a browser,
  * not a simulation of one.
  *
+ * The test context is taken rather than the caller taking the cleanup, because
+ * this function owns a directory and a process from the moment it makes them, and
+ * a browser that never becomes reachable has no handle for a caller to close: the
+ * only place that can clean up after a failure here is here.
+ *
+ * @param {import('node:test').TestContext} t
  * @param {string} browser
  * @param {string} url
  * @param {string} downloads
  * @returns {Promise<object>}
  */
-async function openBrowser(browser, url, downloads) {
+async function openBrowser(t, browser, url, downloads) {
   const profile = mkdtempSync(join(tmpdir(), 'charter-editor-profile-'));
-  const child = spawn(
+
+  /**
+   * Remove the profile, once the last process holding it has let go.
+   *
+   * The browser's helpers keep their files open for a moment after the browser
+   * reports itself done, and a directory something still holds cannot be removed
+   * on Windows, so this polls rather than trying once. It does not throw: a temp
+   * directory that could not be removed is a leak worth knowing about, but it is
+   * not a fact about charter, and it must not fail this suite nor keep the
+   * courier in the caller from being closed after it.
+   *
+   * @returns {Promise<void>}
+   */
+  async function removeProfile() {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      try {
+        rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+        return;
+      } catch {
+        await new Promise((done) => setTimeout(done, 250));
+      }
+    }
+  }
+
+  /**
+   * The process this file spawned — Chrome's launcher, which is not its browser.
+   *
+   * Held in a `let` so the hook below can be registered before it exists: that
+   * hook is what cleans up when spawning or connecting fails, and a hook naming a
+   * binding still in its temporal dead zone throws instead of cleaning.
+   *
+   * @type {import('node:child_process').ChildProcess | null}
+   */
+  let child = null;
+  /** Set once a handle has gone back to the caller, which then owns all of this. */
+  let handedBack = false;
+
+  // Registered before anything can throw, because a hook registered after the
+  // work that fails is a cleanup the failure skips. This function can fail in
+  // five places: a browser that never writes DevToolsActivePort, one whose
+  // devtools endpoint never answers, a response that is not JSON, no page target
+  // among the targets, and a socket that never opens. Until a handle goes back,
+  // this hook ends the browser and removes the directory; afterwards `close`
+  // does, and this steps aside.
+  t.after(async () => {
+    if (handedBack) return;
+    if (child !== null && child.exitCode === null && child.signalCode === null) child.kill();
+    await removeProfile();
+  });
+
+  // Nothing is piped to or from the browser. Its output is read by nothing, and a
+  // browser that outlives the test holding a pipe it inherited keeps the runner
+  // waiting on a handle it cannot close — a hang, in place of the exit it should
+  // have been.
+  child = spawn(
     browser,
     ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--remote-debugging-port=0', `--user-data-dir=${profile}`, url],
-    { stdio: ['ignore', 'pipe', 'pipe'] },
+    { stdio: 'ignore' },
   );
 
   const port = await new Promise((found, failed) => {
@@ -479,6 +539,7 @@ async function openBrowser(browser, url, downloads) {
   }
 
   const version = await send('Browser.getVersion');
+  handedBack = true;
   return {
     evaluate,
     errors,
@@ -507,20 +568,7 @@ async function openBrowser(browser, url, downloads) {
         child.kill();
         await ended;
       }
-      // The browser's helpers let go of the profile a moment after the browser
-      // does, and Windows will not remove a directory something still holds, so
-      // this polls rather than trying once. Not throwing is deliberate: a temp
-      // directory that could not be removed is a leak worth knowing about, but
-      // it is not a fact about charter, and it must not fail this suite — nor
-      // keep the courier in the caller from being closed after it.
-      for (let attempt = 0; attempt < 40; attempt += 1) {
-        try {
-          rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
-          return;
-        } catch {
-          await new Promise((done) => setTimeout(done, 250));
-        }
-      }
+      await removeProfile();
     },
   };
 }
@@ -632,9 +680,26 @@ async function waitForDownload(directory) {
 
 const BROWSER = findBrowser();
 
+/**
+ * Whether this runtime has the global a browser is driven through.
+ *
+ * The page is driven over the DevTools Protocol, which is a WebSocket, and Node
+ * has exposed one as a global only since 22. A runtime without it is not a
+ * failure of this project: the floor declared for the format is Node 20.12
+ * (SPEC section 12), which is what the *verifier* needs, and a runtime that
+ * verifies a charter correctly should not be told its suite is broken because it
+ * cannot also drive Chrome. So the browser tests skip there, the way they skip on
+ * a machine with no browser installed at all.
+ */
+const DRIVABLE = typeof WebSocket === 'function';
+
 test('the editor in a real browser', { timeout: 300000 }, async (t) => {
   if (BROWSER === null) {
     t.skip('no browser found: set CHARTER_BROWSER to the path of one to run these tests');
+    return;
+  }
+  if (!DRIVABLE) {
+    t.skip(`driving a browser needs the WebSocket global, which ${process.version} does not have: Node 22 or later runs these tests`);
     return;
   }
 
@@ -643,13 +708,25 @@ test('the editor in a real browser', { timeout: 300000 }, async (t) => {
   const served = await serveRepository();
   served.server.on('request', (request) => requests.push(request.url ?? '/'));
   const downloads = mkdtempSync(join(tmpdir(), 'charter-editor-downloads-'));
-  const browser = await openBrowser(BROWSER, served.url, downloads);
 
+  /**
+   * The browser, once it is up.
+   *
+   * Held in a `let` so the hook below can be registered before the browser is
+   * opened: opening it can fail, and a hook registered under the line that throws
+   * never runs — and a courier that is never closed is a listening server, which
+   * is a run that does not end.
+   *
+   * @type {object | null}
+   */
+  let browser = null;
   t.after(async () => {
-    await browser.close();
+    if (browser !== null) await browser.close();
     await served.close();
     rmSync(downloads, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
+
+  browser = await openBrowser(t, BROWSER, served.url, downloads);
 
   /** Wait until the page has wired itself up. */
   for (let attempt = 0; attempt < 200; attempt += 1) {
