@@ -4,6 +4,39 @@ Recorded because they are decisions about published behaviour, not internal
 tidying. The format identifier in `manifest.format` changes when section 14 of
 [SPEC.md](SPEC.md) changes; this file records what changed, when, and why.
 
+## Unreleased — the entrance, and what the prior art says about it
+
+Nothing about the format changed in this pass. Three documents changed, and the
+reason they were worth changing is that the format's remaining problem is not a
+missing rule: it is that a stranger arriving from the announcement had no path from
+"curious" to "convinced" that took under five minutes.
+
+**The README's seal block did not run from a clone.** It used the bare `charter`
+bin, which is the `bin` `package.json` declares and which nothing installs or links
+for a reader who has just copied the URL. The first command a stranger was given —
+`charter keygen` — therefore failed with "not recognized as an internal or external
+command", on a page that says "No installation" two screens later. Every command in
+the block now carries the `node cli/charter.js` prefix, which is the form the rest of
+the file already used, and the same sequence was run verbatim from an empty directory
+before the change was written down: `keygen`, `seal`, `edit`, `verify`, `inspect`,
+`cite`, exit `0` at every step.
+
+**The announcement told readers to open a file the browser refuses to open.** It said
+the editor is "one page, no build step: open it and drop a file on it". The repository
+knew better than the announcement did — `editor/README.md` records the browser's own
+error message for exactly this mistake, and the README's instruction is `npm run
+editor`. The announcement now says what the README says. This is the one change in
+this pass that was a factual error rather than an omission.
+
+**Two documents state what the audit and the comparison found, and neither is a
+mechanism.** `docs/prior-art.md` reads `age`, TUF and C2PA for what they do that this
+format does or deliberately does not, and records three findings as recommendations
+rather than acting on them. `docs/where-to-post.md` names where the announcement
+should go and which questions will be asked, with the answers already written down
+elsewhere in the repository. `docs/first-visitor.md` was updated in place rather than
+rewritten: two of its four findings are now resolved and two remain open, and the
+open ones are recorded as open.
+
 ## Unreleased — §12.1's interface held to the document, and the last gap named
 
 The audit of Step 21 left fourteen gaps, and Step 22 built the registry that holds

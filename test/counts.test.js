@@ -376,6 +376,10 @@ const NOT_READ = Object.freeze({
     'a naming convention, which argues about what a name should be and states no count about the tree at all',
   'docs/first-visitor.md':
     'an audit of what a stranger arriving from the announcement meets: it quotes the README, names where each sentence sits by line, and states no count about the tree at all',
+  'docs/prior-art.md':
+    'a comparison against three published specifications: the one count it states about this tree is SPEC.md\'s size in bytes, which is a fact about a file rather than about a set of artifacts, and it is re-measurable from the file itself',
+  'docs/where-to-post.md':
+    'a plan for where to publish the announcement and which questions will be asked: it names external venues and mailing lists rather than anything in this tree, and states no count about it at all',
 });
 
 /** The documents a claim above reads a count out of, which rule 4 is stated over. */

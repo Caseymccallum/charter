@@ -55,13 +55,18 @@ means every requirement was actually established.
 ## Seal a document
 
 ```
-charter keygen -o key.pem                           # an Ed25519 key, PKCS#8 PEM
-charter seal notes.md --key key.pem -o notes.charter
-charter edit notes.charter notes-v2.md --key key.pem -o notes.charter --summary "Add the Risks section." --force
-charter verify notes.charter                        # VERIFIED, exit 0, or what failed
-charter inspect notes.charter                       # what the file claims, and no verdict
-charter cite notes.charter --accessed 2026-09-16    # CSL-JSON, for a reference manager
+node cli/charter.js keygen -o key.pem                       # an Ed25519 key, PKCS#8 PEM
+node cli/charter.js seal notes.md --key key.pem -o notes.charter
+node cli/charter.js edit notes.charter notes-v2.md --key key.pem -o notes.charter --summary "Add the Risks section." --force
+node cli/charter.js verify notes.charter                    # VERIFIED, exit 0, or what failed
+node cli/charter.js inspect notes.charter                   # what the file claims, and no verdict
+node cli/charter.js cite notes.charter --accessed 2026-09-16 # CSL-JSON, for a reference manager
 ```
+
+That is the form that works from a clone, and the form every other command in this
+file uses. `charter` on its own is the same command once the package is linked or
+installed — it is the `bin` `package.json` declares — but nothing here needs it to
+be.
 
 `seal` takes the document, the key, and where to write the artifact, and it also
 takes `--title` (the title to record), `--author` (the signer's name),
@@ -93,7 +98,7 @@ Two decisions about that command line are worth knowing before you use it:
 
 If you would rather make the key with your own tools,
 `openssl genpkey -algorithm ed25519 -out key.pem` produces exactly the PKCS#8 PEM
-that `--key` reads. `charter keygen` is here because that command assumes
+that `--key` reads. `keygen` is here because that command assumes
 `openssl` is installed, and it often is not.
 
 `seal` refuses what it cannot write, and every refusal prints a reason code from

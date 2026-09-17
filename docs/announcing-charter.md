@@ -41,8 +41,8 @@ really is.
 
 The specification is [SPEC.md](../SPEC.md). The conformance kit is
 [`vectors/`](../vectors/), and it runs without trusting this implementation. The
-reader is [`editor/index.html`](../editor/index.html) — one page, no build step:
-open it and drop a file on it. All of it is at
+reader is [`editor/index.html`](../editor/index.html) — one page, no build step,
+served by `npm run editor`: drop a file on it. All of it is at
 [github.com/Caseymccallum/charter](https://github.com/Caseymccallum/charter).
 
 Most of the work is not in the reader. Two implementations of the checks were

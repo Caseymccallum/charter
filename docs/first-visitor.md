@@ -119,10 +119,14 @@ The third thing is the editor, `npm run editor`, which does work from a clone. I
 the surface the announcement points at, it needs no specification and no key, and
 it is at line 235 — four sections below where a stranger will be.
 
-**This is reported rather than changed.** Rewriting the seal block to
-`node cli/charter.js` is a real improvement and it is not this pass's edit: this
-pass adds the smallest sequence that makes a first path exist, and a second finding
-acted on quietly is a finding nobody records.
+**Fixed in the pass after this one.** Rewriting the seal block to
+`node cli/charter.js` was left here as a finding so that it would be recorded rather
+than acted on quietly, and it has since been done: every command in the block now
+carries the `node cli/charter.js` prefix, and the whole sequence was run verbatim from
+an empty directory before the change was written down — `keygen`, `seal`, `edit`,
+`verify`, `inspect` and `cite`, exit `0` at every step. The bare `charter` form is now
+described in the text below the block as what it is: the same command once the package
+is installed, which nothing in this file needs.
 
 ## 5. What was added
 
@@ -148,9 +152,33 @@ it does not, and the reader needs no key, no network, and no specification.
 
 ## What this pass did not do
 
-The three findings in question 3 and the one in question 4 are recorded above and
-not acted on. Nothing here is a test, a fixture or a tool: the questions were
-answered by reading the file and running four commands that already existed.
+The four findings recorded in questions 3 and 4 were answered by reading the file and
+running commands that already existed; nothing here is a test, a fixture or a tool.
+
+Two of them have since been resolved in the pass that followed, and both are recorded
+rather than quietly dropped:
+
+- **The seal block's bare `charter`** — fixed above. Every command now works from a
+  clone, and was run from an empty directory to prove it.
+- **The announcement sent readers to the editor page and told them to "open" it** —
+  which is wrong, and the repository already said so. `editor/README.md:27`: browsers
+  "refuse to load an ES module from a `file://` page, so `editor/index.html` cannot be
+  opened by double-clicking it", and the README's own instruction is `npm run editor`.
+  The announcement now says the same thing. The *link* difference is deliberate and
+  stays: the announcement links the page, because the page is what a reader is being
+  sent to use, while the README's "The editor" section links
+  `editor/README.md`, because that section is explaining why the page has to be
+  served. Both artifacts exist and each document links the one it is talking about.
+
+Two remain open, and neither is a mechanism:
+
+- **`SPEC.md` is the README's first link, 21 lines in.** A stranger clicking the first
+  link offered to them meets a hundred kilobytes of normative rules. This is a
+  judgement call about the README's order, not a defect, and the author's to make.
+- **There is no `vectors/README.md`**, so the kit — the single most convincing thing in
+  the repository — is never linked as a unit. The directory is named in prose and its
+  three sub-READMEs are linked individually. Adding a file is what this pass was told
+  not to do.
 
 The format is complete and the verification is extensive. What is missing is not a
 mechanism — the claim that a stranger can check a file was the last thing worth
