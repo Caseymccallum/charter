@@ -25,6 +25,16 @@
  * places — the dispatch table, the usage block the command line prints, and
  * section 12's command lines — and all three have to be the same set.
  *
+ * Section 3.7's table of ceilings is the third declaration of this kind: nine
+ * numbers the section calls published behaviour, held in three places at once —
+ * the table, `verifier/limits.js`, and the Python reading's own module. The
+ * table's second column states each ceiling in the units a person reads it in
+ * ("256 MiB", "100,000", "65,535 bytes"), and its first column is prose
+ * ("Whole file", "One entry, compressed") that no document turns into a name.
+ * So the three lists are compared **by position**, which puts the table's order
+ * under the same claim as its numbers; a row-by-row mapping would leave a
+ * reordered table passing.
+ *
  * @module test/spec
  */
 
@@ -34,6 +44,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { LIMITS } from '../verifier/limits.js';
 import { CHECK_IDS, REASON } from '../verifier/status.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -231,3 +242,163 @@ test('every row of section 10.2 names the cases that check it', () => {
   assert.equal(Number(stated[2]), totals.probe, 'the stated probe total is the column’s probe total');
   assert.equal(Number(stated[3]), totals.corpus, 'the stated corpus total is the column’s corpus total');
 });
+
+/**
+ * Section 3.7's table: the ceilings the format publishes.
+ *
+ * The first column is prose ("Whole file", "One entry, compressed") and the
+ * second is a number with a unit ("256 MiB", "65,535 bytes"), so neither column
+ * can be matched against a name in `verifier/limits.js` — there is no string in
+ * this table that says `MAX_ARCHIVE_BYTES`. What the three copies share is their
+ * **order**: the table lists the ceilings in the order the module declares them
+ * and the port declares them again. That order is what this reads, and the
+ * values are compared through it.
+ *
+ * @returns {{ what: string, value: number }[]}
+ */
+function limitsTable() {
+  const spec = readFileSync(join(ROOT, 'SPEC.md'), 'utf8');
+  const at = spec.indexOf('\n### 3.7');
+  assert.notEqual(at, -1, 'SPEC.md has a section 3.7, where the published ceilings are tabulated');
+  const rest = spec.slice(at + 1);
+  const end = rest.search(/\n#{2,3} /);
+  /** @type {{ what: string, value: number }[]} */
+  const rows = [];
+  for (const line of (end === -1 ? rest : rest.slice(0, end)).split('\n')) {
+    if (!line.startsWith('| ')) continue;
+    const cells = line.split('|').slice(1, -1).map((cell) => cell.trim());
+    if (cells.length < 2) continue;
+    if (/^-+$/.test(cells[1]) || cells[0] === 'Dimension') continue;
+    rows.push({ what: cells[0], value: measure(cells[1]) });
+  }
+  assert.ok(rows.length > 0, "section 3.7's table has rows, and this test reads them");
+  return rows;
+}
+
+/**
+ * A size a document states as text, as a number.
+ *
+ * Units are allowed because the table uses them: `256 MiB` is 268435456, and a
+ * bare `64` is 64. A cell this cannot read is a defect in this reader rather
+ * than in the document, so it fails here, where the cell is named.
+ *
+ * @param {string} cell
+ * @returns {number}
+ */
+function measure(cell) {
+  const found = /([\d,_]+)\s*(KiB|MiB|GiB|TiB|bytes?)?/i.exec(cell);
+  assert.notEqual(found, null, `"${cell}" states no size this reader can read`);
+  const scale = { kib: 1024, mib: 1024 ** 2, gib: 1024 ** 3, tib: 1024 ** 4 };
+  const unit = (found[2] ?? '').toLowerCase();
+  return Number(found[1].replace(/[,_]/g, '')) * (scale[unit] ?? 1);
+}
+
+/**
+ * The Python port's copy of the same nine ceilings, in its own names.
+ *
+ * The port is a second reading and not a second declaration: it may name its
+ * constants differently, and it does, so this reads its values and not its
+ * names. A name the port has and the table does not would be a tenth ceiling,
+ * and the length comparison is what would say so.
+ *
+ * @returns {number[]}
+ */
+function portLimits() {
+  const source = readFileSync(join(ROOT, 'implementations', 'python', 'charter_verify', 'limits.py'), 'utf8');
+  /** @type {number[]} */
+  const values = [];
+  for (const line of source.split('\n')) {
+    const found = /^([A-Z][A-Z0-9_]*)\s*(?::\s*\w+)?\s*=\s*(.+)$/.exec(line.trim());
+    if (found) values.push(evaluate(found[2]));
+  }
+  assert.ok(values.length > 0, "the port's limits.py declares constants, and this test reads them");
+  return values;
+}
+
+/**
+ * A Python constant's value, as a number.
+ *
+ * The port writes its ceilings as arithmetic, because that is how the numbers
+ * are read: `256 * 1024 * 1024` says 256 MiB where `268435456` says nothing a
+ * person can check. A reader that took only bare digits would find four of the
+ * nine and quietly pass on the rest, which is the failure this avoids. The
+ * grammar is multiplication, addition and parentheses; a value written some
+ * other way fails here, naming itself, rather than being skipped.
+ *
+ * @param {string} expression the text to the right of the `=`
+ * @returns {number}
+ */
+function evaluate(expression) {
+  const text = expression.replace(/_/g, '').replace(/\s+/g, '');
+  assert.match(text, /^[\d*+()]+$/, `"${expression}" is not arithmetic this reader can evaluate`);
+  let at = 0;
+  const number = () => {
+    const start = at;
+    while (at < text.length && text[at] >= '0' && text[at] <= '9') at += 1;
+    assert.ok(at > start, `"${expression}" has an operator with no number beside it`);
+    return Number(text.slice(start, at));
+  };
+  const factor = () => {
+    if (text[at] !== '(') return number();
+    at += 1;
+    const value = sum();
+    assert.equal(text[at], ')', `"${expression}" has a parenthesis this reader did not close`);
+    at += 1;
+    return value;
+  };
+  const product = () => {
+    let value = factor();
+    while (text[at] === '*') {
+      at += 1;
+      value *= factor();
+    }
+    return value;
+  };
+  function sum() {
+    let value = product();
+    while (text[at] === '+') {
+      at += 1;
+      value += product();
+    }
+    return value;
+  }
+  const value = sum();
+  assert.equal(at, text.length, `"${expression}" has text this reader did not read`);
+  return value;
+}
+
+test("section 3.7 tabulates the ceilings verifier/limits.js declares, row by row", () => {
+  const table = limitsTable();
+  const names = Object.keys(LIMITS);
+  const declared = Object.values(LIMITS);
+  assert.equal(
+    declared.length,
+    table.length,
+    `section 3.7 tabulates ${table.length} ceilings and verifier/limits.js declares ${declared.length}`,
+  );
+  table.forEach((row, index) => {
+    assert.equal(
+      declared[index],
+      row.value,
+      `section 3.7's row ${index + 1} ("${row.what}") states ${row.value} and ${names[index]} is ${declared[index]}`,
+    );
+  });
+});
+
+test('the port declares the same ceilings, in the same order', () => {
+  const table = limitsTable();
+  const port = portLimits();
+  assert.equal(
+    port.length,
+    table.length,
+    `the port declares ${port.length} ceilings and section 3.7 tabulates ${table.length}`,
+  );
+  table.forEach((row, index) => {
+    assert.equal(
+      port[index],
+      row.value,
+      `section 3.7's row ${index + 1} ("${row.what}") states ${row.value} and the port's constant for it is ${port[index]}`,
+    );
+  });
+});
+

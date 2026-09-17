@@ -4,6 +4,45 @@ Recorded because they are decisions about published behaviour, not internal
 tidying. The format identifier in `manifest.format` changes when section 14 of
 [SPEC.md](SPEC.md) changes; this file records what changed, when, and why.
 
+## Unreleased — the nine published ceilings, and the third declaration nobody read
+
+Section 3.7 ends with a sentence about its own table:
+
+> These numbers are part of the published behaviour of charter/0.1. Changing one
+> changes what a verdict means.
+
+Nine ceilings, called published behaviour, and the section is right to say so:
+the table, `verifier/limits.js` and the Python reading's `limits.py` each hold
+all nine, and a reader that disagreed with the verifier about one of them would
+produce a different verdict for the same bytes. That is the same class of claim
+as §10's reason vocabulary and §12's verbs — a part of the specification that is
+also code — and it was the only one of the three that nothing held. A ceiling
+could have been changed in either module, or in the table, and the suite would
+have stayed green while the three copies said different things.
+
+`test/spec.test.js` now reads all three. It is a slightly different check from
+the two beside it, because §3.7's table is the one declaration in this document
+that does not name what it declares. Its first column is prose — "Whole file",
+"One entry, compressed" — and its second is a number with a unit a person reads:
+"256 MiB", "100,000", "65,535 bytes". Neither column contains anything a reader
+could match against `MAX_ARCHIVE_BYTES`. What the three copies do share is their
+order, so the comparison is **by position**: the table's row *n* is the *n*-th
+ceiling `verifier/limits.js` declares, and the *n*-th the port declares. That
+leaves the table's order under the same claim as its numbers — a table reordered
+while keeping its rows passes nothing — and it needs no fourth copy of the truth
+to say which row is which.
+
+The port's half needed one thing the other two did not. Its ceilings are written
+as arithmetic — `FILE_BYTES = 256 * 1024 * 1024` — because that is how the
+numbers are read, and a reader that took only bare digits found four of the nine
+and would have passed on the other five. The reader evaluates the expression
+instead, over a grammar of multiplication, addition and parentheses, and fails on
+anything outside it by naming the line: a value written some other way is a
+refusal, not a silently skipped ceiling.
+
+All four ways this can drift are caught, each by the check that owns it: a
+magnitude changed in the table, in `verifier/limits.js`, or in the port's module,
+and two rows of the table transposed.
 ## Unreleased — the exit code no verb was asked about, and the table that asks now
 
 Section 12 states an exit code per verb, not just per program:
