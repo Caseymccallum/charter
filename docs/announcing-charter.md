@@ -45,9 +45,9 @@ reader is [`editor/index.html`](../editor/index.html) — one page, no build ste
 open it and drop a file on it. All of it is at
 [github.com/Caseymccallum/charter](https://github.com/Caseymccallum/charter).
 
-Most of the work is not in the reader. Three implementations of the checks exist —
-the reference one, a Python port written from the specification rather than from
-the JavaScript, and a third inside the browser page — and they are held against
+Most of the work is not in the reader. Two implementations of the checks were
+written independently — the reference one, and a Python port written from the
+specification by a reader who did not read `verifier/**` — and they are held against
 each other by a kit of 56 artifacts with 56 recorded answers, 27 hand-built cases,
 and 34 deliberately corrupted containers whose verdicts were written down in
 advance. The specification's own list-shaped rules are held to the code by an
