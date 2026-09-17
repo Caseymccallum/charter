@@ -87,6 +87,9 @@ function artifact(name) {
 /** The specification, as text: section 12 is where the exit codes are stated. */
 const SPEC = readFileSync(join(ROOT, 'SPEC.md'), 'utf8');
 
+/** The manifest, as data: what npm reads, and what a publish would use. */
+const PACKAGE = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'));
+
 /**
  * A level-2 section of SPEC.md, by the text of its heading.
  *
@@ -418,4 +421,80 @@ test('open refuses a file whose entries it cannot call the document, rather than
   assert.equal(refused.status, 65);
   assert.match(refused.stderr, /MALFORMED/);
   assert.equal(refused.stdout, '', 'nothing comes out of a file that could not be read as a charter');
+});
+
+/* ------------------------------- packaging -------------------------------- */
+
+test('the package would install the command this file asks about', () => {
+  // `bin` is the only thing connecting a package name to a command name, and a bin
+  // whose file is missing, or which carries no shebang, installs a command that
+  // works on Windows and not on Linux. Nothing else in this suite would notice:
+  // every other test here runs `node cli/charter.js` and never the installed form.
+  const bin = PACKAGE.bin?.charter;
+  assert.equal(typeof bin, 'string', 'package.json declares a `charter` bin, or nothing a reader installs is called charter');
+  const target = join(ROOT, bin);
+  assert.equal(existsSync(target), true, `package.json points the charter command at ${bin}, which is not a file`);
+  assert.equal(
+    readFileSync(target, 'utf8').startsWith('#!'),
+    true,
+    'the file the package installs as a command carries a shebang, or a Unix install links something the shell cannot run',
+  );
+
+  // The runtime floor is stated twice, and the two statements have to agree: section
+  // 12 promises a verifier works on it, and `engines` is what npm refuses to install
+  // below. This is the fourth claim of that shape in the project — after the verb
+  // set, the ceilings and the field lists — and the first that lives in a manifest.
+  const stated = /The verifier needs \*\*Node ([\d.]+) or later\*\*/.exec(section('12. Running it').replace(/\s+/g, ' '));
+  assert.notEqual(
+    stated,
+    null,
+    'SPEC.md section 12 states the runtime the verifier needs; this test reads that sentence, so it has to be told where it went',
+  );
+  const declared = String(PACKAGE.engines?.node ?? '').replace(/^[^\d]*/, '').split('.').slice(0, 2).join('.');
+  assert.equal(
+    declared,
+    stated[1],
+    `section 12 promises Node ${stated[1]} or later and package.json declares engines.node ${PACKAGE.engines?.node}, so a runtime the document says is enough can be refused an install`,
+  );
+});
+
+test('a publish would ship the code and not the repository', { timeout: 180000 }, (t) => {
+  // Asked of npm rather than worked out here. What a publish includes is npm's
+  // algorithm, and a second implementation of it would be a copy free to disagree
+  // with the first — which is the mistake this project spends its tests avoiding.
+  // The `files` allowlist is what makes the answer small, and this is what notices
+  // if it is dropped: without it a publish ships 255 files instead of 30, including
+  // `test/`, `vectors/` and `implementations/`.
+  const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const run = spawnSync(npm, ['pack', '--dry-run', '--json'], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    timeout: 120000,
+    shell: process.platform === 'win32',
+  });
+  if (run.error !== undefined || run.status !== 0 || typeof run.stdout !== 'string' || !run.stdout.includes('[')) {
+    t.skip('npm could not be asked what a publish would ship, so the question is left open rather than guessed at');
+    return;
+  }
+
+  const packed = JSON.parse(run.stdout.slice(run.stdout.indexOf('[')))[0];
+  const paths = packed.files.map((file) => file.path);
+  assert.ok(paths.includes('cli/charter.js'), 'the command the package installs is in what a publish ships');
+
+  const allowed = /^(cli|producer|verifier)\//;
+  const added = ['SPEC.md', 'README.md', 'LICENSE', 'package.json'];
+  const foreign = paths.filter((path) => !allowed.test(path) && !added.includes(path));
+  assert.deepEqual(
+    foreign,
+    [],
+    'a publish ships the code, the specification, and the files npm adds by itself, and nothing else',
+  );
+
+  for (const excluded of ['test/', 'vectors/', 'implementations/', 'docs/', 'editor/']) {
+    assert.equal(
+      paths.some((path) => path.startsWith(excluded)),
+      false,
+      `a publish would ship ${excluded}, which is material about the repository rather than about the format`,
+    );
+  }
 });

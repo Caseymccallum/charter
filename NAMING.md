@@ -47,11 +47,42 @@ used as a noun for the artifact, and its meaning describes the verifier rather
 than the file. Charter keeps the discipline of the earlier work (spec first,
 verifier first, no pass-with-warnings) and drops the name.
 
-## Result
+## The package name, and why it is not `charter`
 
-- Project: **Charter**
+The command is `charter`; the package that carries it is **`charter-cli`**. Those are
+two different names on purpose, and the mechanism is `bin`: a package can install a
+command under any name, so the verb does not have to be the identifier.
+
+`charter` on npm is taken: version `0.0.2`, described as "Nodejs library for Charter
+App", published from `github.com/runk/node-charter`, last modified 2022-06-13. It is
+unrelated to this project and long abandoned, but npm does not unpublish, so the name
+is unavailable and always will be. That is a fact about the registry, not a judgement
+about the name.
+
+The candidates, and why each was passed over:
+
+| Candidate | Why not |
+| --- | --- |
+| `charter` | Taken. See above. |
+| `charter-format` | Names the *format*, and this package is an implementation of it: the format is `SPEC.md`, and it has no npm name at all. A reader who installed it expecting a format would have a command line, which is a smaller thing. |
+| `charter-js` / `charterjs` | Would be right if npm carried a family of implementations. It carries one, and there are two implementations in total (the reference and the Python reading), so a language-suffixed name would imply the format is JavaScript-shaped. It is not; that is the whole claim of §14's identifier. |
+| `charter-doc` / `charter-file` | Blunter, and reads as a documentation generator and a file-input widget respectively. Neither is what this is. |
+| any `@scope/charter` | The right answer once there is a scope to own. A scope requires an npm account or organisation, and which one the author holds is not something this file can check: the registry's user endpoint does not answer for an unauthenticated caller about an account it cannot see. So a scoped name is recorded here as the move to make *if* a scope is owned, and is not the name this project commits to. |
+
+**The path that needs no decision at all.** A package can be installed from this
+repository without being published:
+
+```
+npm install -g github:Caseymccallum/charter
+```
+
+That clones the repository, reads `package.json`, links the `charter` command, and
+works today. It was run before it was written down. It is the recommended install for
+now, because it is available and needs no registry account.
 - Extension: **`.charter`**
 - Command: **`charter`**
+- Package: **`charter-cli`** — see the section above for why the package is not named
+  after the command, and why the command keeps the project's name
 - Naming conflicts knowingly accepted: the word "charter" is used by schools,
   cities, and the UN. None of them ship a document format. There is no
   plausible confusion between a city charter and a `.charter` file.
@@ -65,3 +96,9 @@ rejected on a hunch, and every rejection has a reason written down here.** If a
 clearance search later contradicts something in this table, this file should be
 corrected rather than quietly dropped, and the correction should say what
 changed.
+
+The registry checks above were made on 2026-09-17, by asking the registry
+directly: `charter` resolved to a published package with a modification date, and
+the candidate names resolved to nothing. That is a stronger check than reading a
+search result, and a weaker one than owning the account — the scoped option is
+the one case where the answer depends on something this repository cannot see.

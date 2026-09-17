@@ -53,7 +53,7 @@ const HELP = `  charter verify <file.charter> [--all] [--json]
   charter keygen -o <key.pem> [--force]
   charter --help`;
 
-const USAGE = `charter — verify, seal, edit, inspect and cite .charter documents
+const USAGE = `charter — verify, open, seal, edit, inspect and cite .charter documents
 
 Usage:
 ${HELP}

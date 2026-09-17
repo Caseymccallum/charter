@@ -96,15 +96,27 @@ rules force, which is why the proof is byte-for-byte rather than structural.
   `counts.test.js` holds it to the file, so growing the page made that number false
   and it had to be corrected. Recorded here rather than done quietly.
 
-**1c. A path to an installed command.** `package.json` is `"private": true`, so
-`npm install -g charter` cannot work. There is no `files` allowlist, so a publish
-would ship `vectors/`, `test/` and `implementations/` as well.
+**1c. A path to an installed command — done, and the name is decided.** The package
+is `charter-cli`, the command it installs is `charter`, and `bin` is what connects
+those two names — so the verb did not have to be renamed for a registry. `charter`
+on npm is held by an unrelated, abandoned package, so it was unavailable and always
+will be; `NAMING.md` records that check and the rejections.
 
-- Touches the format: no. It is packaging.
-- Blocked on a decision that is not technical: whether the package name is available,
-  and whether publishing under `charter/0.1` at `0.1.0` is a promise the author wants
-  to make today. An unpublished package is also why the README's seal block had to
-  be rewritten to `node cli/charter.js`.
+- **Two installs, and one of them needs no decision:** `npm install -g
+  github:Caseymccallum/charter` works today, from this repository, with no registry
+  account. Publishing under `charter-cli` is the author's step and is not taken here.
+- **`files` is the substance of it.** Without the allowlist a publish ships the
+  whole repository: 255 files, 2.4 MB, including `test/`, `vectors/`,
+  `implementations/` and `docs/`. With it: 30 files, 388 kB unpacked, 109 kB packed
+  — `cli/`, `producer/`, `verifier/`, `SPEC.md`, and the README and LICENSE npm adds
+  by itself.
+- `private: true` is gone, and `repository`, `homepage`, `bugs` and `keywords` are
+  filled in, because a published package with no source link is a dead end.
+- Touches the format: **no.**
+- Proved by installing it: into a throwaway prefix, then running `keygen`, `seal`,
+  `edit`, `verify`, `open` and `inspect` with the installed command from a directory
+  outside the repository, and comparing the document that came back out with the one
+  that went in. The git-URL install was run too, and verified an artifact.
 
 ## Phase 2 — the artifact in a user's hands
 

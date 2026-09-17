@@ -4,6 +4,64 @@ Recorded because they are decisions about published behaviour, not internal
 tidying. The format identifier in `manifest.format` changes when section 14 of
 [SPEC.md](SPEC.md) changes; this file records what changed, when, and why.
 
+## Unreleased — the package: a command a reader can install
+
+Phase 1c of the roadmap. Nothing about the format changed; this is distribution, and
+the reason it mattered is that the only way to run this program was to clone the
+repository and type `node cli/charter.js`.
+
+**The name is decided, and it is not the command's name.** The command stays
+`charter`; the package is `charter-cli`, and `bin` is what connects the two, so the
+verb did not have to be renamed for a registry. `charter` on npm is held by an
+unrelated, abandoned package — version `0.0.2`, "Nodejs library for Charter App",
+last modified 2022 — and npm does not unpublish, so that name was never available.
+[NAMING.md](NAMING.md) records the registry check, the candidates, and the reason each
+was passed over.
+
+**Two installs, one of which needs no decision.**
+
+```
+npm install -g github:Caseymccallum/charter
+```
+
+installs the command straight from this repository, with no registry account. It was
+run before it was written down. Publishing under `charter-cli` is the author's step
+and is not taken here, so the README says plainly that `npm install -g charter-cli`
+does not resolve yet rather than printing a command that would fail.
+
+**`files` is the substance of it.** Without the allowlist a publish ships the whole
+repository — 255 files and 2.4 MB, including `test/`, `vectors/`, `implementations/`
+and `docs/`. With it npm ships 30 files: `cli/`, `producer/`, `verifier/`, `SPEC.md`,
+and the README and LICENSE npm adds by itself — 388 kB unpacked, 109 kB packed. The
+manifest also gains `repository`, `homepage`, `bugs` and `keywords`, because a
+published package with no source link is a dead end, and loses `private: true`.
+
+**Two tests, and both were proved to bite.** `test/cli.test.js` gains a packaging
+section: the `bin` exists and the file it names carries a shebang, or a Unix install
+links something a shell cannot run; `engines.node` is the floor §12 promises — the
+fourth two-place claim in this project, after the verb set, the ceilings and the field
+lists, and the first that lives in a manifest; and what a publish would ship is asked
+of npm itself (`npm pack --dry-run --json`) rather than worked out in the test, because
+a second implementation of npm's rule would be a copy free to disagree with the first.
+That last test skips when npm cannot be asked, the way the browser and Python tests
+skip. Mutations: dropping `files` fails it, and moving `engines` to `>=22.0.0` fails
+the floor test.
+
+**Also fixed:** the usage tagline read "verify, seal, edit, inspect and cite", which
+stopped being true when `open` landed in the pass before this one. It names all six
+verbs now. It was found by running the *installed* command, which is the first time
+that output had been read from outside the repository.
+
+**A mistake in how the proof was run, recorded because it nearly cost the change.**
+The first attempt at the mutation proofs was issued as three parallel commands
+touching `package.json` at once. The concurrent writes clobbered each other and left
+`files` *missing* from the manifest — and the suite run in that same batch reported
+failures that were an artefact of the race rather than a result. It was caught by
+re-reading the manifest field by field before trusting anything. The lesson is in the
+process and not in the code: a mutation proof that runs while something else is
+writing the same file proves nothing, which is why they were redone serially and the
+file was verified after each one.
+
 ## Unreleased — the editor catches up with the command line
 
 Phase 1b of the roadmap: the page could show a document and seal one, and it could
