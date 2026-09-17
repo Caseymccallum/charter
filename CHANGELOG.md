@@ -59,6 +59,12 @@ per run, 141 of them in seventeen hours. It is fixed in the commit immediately
 before this one, which is why those interruptions are recorded here as what they
 were rather than as a regression in this pass.
 
+**The browser fix that came after this pass is not recorded separately, by the same
+reading.** It repairs a defect in `test/editor.test.js` — the suite failed and hung
+on the runtime this project declares as its floor, and it skips there now and cleans
+up after its own failures — and it changes nothing a program says about a document,
+so it is internal tidying under this file's own header, as the leak above is.
+
 **The announcement is written, and it is a checked document.**
 `docs/announcing-charter.md` is a draft addressed to people outside this project,
 and it states numbers about the present: the kit's size and its recorded answers,

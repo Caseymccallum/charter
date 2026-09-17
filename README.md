@@ -30,6 +30,23 @@ node cli/charter.js verify path/to/file.charter --all  # every check, including 
 node cli/charter.js verify path/to/file.charter --json # the verdict as JSON, and nothing else
 ```
 
+A file to try it on, with nothing installed and nothing built — the kit holds a
+document, the same document with one byte of its content changed, and a history
+that was rewritten and re-signed:
+
+```
+node cli/charter.js verify vectors/out/valid.charter             # VERIFIED, exit 0
+node cli/charter.js verify vectors/out/content-tampered.charter  # BROKEN, exit 2
+node cli/charter.js verify vectors/out/history-rewritten.charter # VERIFIED, exit 0
+```
+
+The first is a document that verifies. The second is that same document with one
+byte of `content.md` changed, and the verdict names the digest it measured against
+the digest the manifest declared. The third is a history the key holder replaced
+and re-signed: it verifies, and the verdict states the limit beside itself — the
+chain fixes the order of inclusion, and nothing in this format witnesses time or
+uniqueness.
+
 Exit codes: `0` VERIFIED, `1` INCOMPLETE (nothing failed, but something was not
 established), `2` BROKEN (something failed), `64` the command line was not
 understood, `66` the file could not be read. Only `0` is a pass, and only `0`

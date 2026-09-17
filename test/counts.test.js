@@ -374,6 +374,8 @@ const NOT_READ = Object.freeze({
     'a record of what was true when a pass closed: a count inside it is history, and rewriting one to match today would falsify the record rather than check it',
   'NAMING.md':
     'a naming convention, which argues about what a name should be and states no count about the tree at all',
+  'docs/first-visitor.md':
+    'an audit of what a stranger arriving from the announcement meets: it quotes the README, names where each sentence sits by line, and states no count about the tree at all',
 });
 
 /** The documents a claim above reads a count out of, which rule 4 is stated over. */
