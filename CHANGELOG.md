@@ -4,6 +4,53 @@ Recorded because they are decisions about published behaviour, not internal
 tidying. The format identifier in `manifest.format` changes when section 14 of
 [SPEC.md](SPEC.md) changes; this file records what changed, when, and why.
 
+## Unreleased — the exit code no verb was asked about, and the table that asks now
+
+Section 12 states an exit code per verb, not just per program:
+
+> `66` belongs to the four that read a file named on the command line — `seal`,
+> `edit`, `inspect` and `cite` — and `73` to the three that create one: `seal`,
+> `edit` and `keygen`.
+
+That sentence exists because the version before it was **wrong**: it gave `keygen` a
+use of `66`, and `66` means a *named file could not be read* when `keygen` reads no
+file at all. The pass that fixed the sentence added the sentence; nothing added a
+check. The gap is easy to miss because the mapping was true in every other cell, and
+because the guard that *did* exist — `test/spec.test.js`, which holds the verbs
+section 12 shows against the verbs `cli/charter.js` dispatches — asks a different
+question. It compares two *sets*, so it catches a verb with no line in the document
+and a line for a verb that does not exist. A code attached to a verb that does exist
+is invisible to it, and that is precisely the shape the `keygen` error had: seven
+verbs, seven rows, every count consistent, one cell false.
+
+### What asks now
+
+Three tests in `test/cli.test.js`, each one a process run rather than a comparison of
+two lists, because an exit code is only ever evidence when a real invocation produced
+it:
+
+- **The table is complete in both directions.** Every verb section 12 shows is a verb
+  this file asks about, and every verb this file asks about is one the document
+  shows. A verb added to the command line and given no row there would be asked
+  nothing; a row for a verb no document shows is a question about nothing.
+- **`66` is asked of every verb.** The verbs the mapping names as readers — plus
+  `verify`, whose five verdict codes section 12 states in the sentence before — are
+  handed a path that holds nothing, and each has to exit `66`. Every other verb has to
+  *not* exit `66`, which is the half that would have caught `keygen`: the negative
+  case is the assertion the old sentence needed and nothing made.
+- **`73` is asked of every verb.** The three the mapping names as writers are handed
+  an output path that is already taken, and each has to exit `73`; the four that
+  write no file have to not exit `73`.
+
+The reader that feeds them also holds section 12's own number words against its own
+lists — "the **four** that read", "the **three** that create one" — so a list that
+grows by one while the number stays put fails the same way a number that moves while
+the list stays put does. That is the drift `test/counts.test.js` refuses in prose,
+applied to a sentence that is both a count and a rule.
+
+The count of tests moved from 174 to **177**, updated in the three places `README.md`
+states it.
+
 ## Unreleased — the boundary the courier's prose described, and the socket nobody asked
 
 `editor/serve.mjs` is a courier that hands this repository to a browser, and the
