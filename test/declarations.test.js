@@ -227,6 +227,25 @@ function specSide(locator) {
       assert.notEqual(row, undefined, `the table under "${locator.anchor}" has no row for \`${locator.arg}\``);
       return { values: backticked(row[1]).map(valueOf) };
     }
+    case 'row-zero': {
+      // Section 3.6's table states a value two ways: as a backticked number for
+      // the fields that hold one, and as prose for the two fields fixed at
+      // nothing ("none: the field is zero bytes long"). Both are one claim, and
+      // a row that read only the first spelling would report the other two as
+      // an empty list — a claim the code could then disagree with and pass.
+      const row = rowsAfter(text, locator.anchor).find(
+        (cells) => cells[0] === locator.arg || backticked(cells[0]).includes(locator.arg),
+      );
+      assert.notEqual(row, undefined, `the table under "${locator.anchor}" has no row for \`${locator.arg}\``);
+      const named = backticked(row[1]).map(valueOf);
+      if (named.length > 0) return { values: named };
+      assert.match(
+        row[1],
+        /zero bytes|none:/,
+        `the "${locator.arg}" row states neither a number nor that the field is zero bytes long`,
+      );
+      return { values: [0] };
+    }
     case 'names':
       return { values: backticked(claimText(locator)).map(valueOf) };
     case 'quoted':

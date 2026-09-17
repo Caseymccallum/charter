@@ -4,6 +4,76 @@ Recorded because they are decisions about published behaviour, not internal
 tidying. The format identifier in `manifest.format` changes when section 14 of
 [SPEC.md](SPEC.md) changes; this file records what changed, when, and why.
 
+## Unreleased — §12.1's interface held to the document, and the last gap named
+
+The audit of Step 21 left fourteen gaps, and Step 22 built the registry that holds
+eleven of them. This pass closes two more, finishes a third, and names the last
+one.
+
+**§12.1 constrains programs rather than files, and nothing read it.** It fixes the
+JSON shape a script consumes. The reporter's JSON is assembled in `cli/charter.js`
+and is not an exported constant, so the registry's enforcement half — which
+accounts for every constant `verifier/**` exports — could not see it. Three tests
+in `test/spec.test.js` hold it now: they ask the command line for its own `--json`
+output and compare the shape it prints with the shape the section describes — the
+eight keys of a verdict, the seven of `artifact`, and the sub-keys of `summary`,
+`checks` and `limitations`. The output comes from a spawned process rather than
+from the reporter's source, because a test that read the object the reporter
+builds would agree with the reporter about a shape the document does not describe:
+the failure mode this file exists for, one level out.
+
+**§3.6's five remaining fields have names now.** Step 22 could only half-close
+§3.6's table of eight fixed fields — three had a named constant, and the other
+five (a disk number, the two attribute words, the extra field and the record
+comment) were bare `0`s written into `verifier/zip-write.js`, so a row would have
+had nothing to compare against. They are named constants, and they live in
+`verifier/zip.js` rather than in the writer for a reason `test/purity.test.js`
+enforces: the reading path may not reach a writer, and the check that refuses a
+file setting one of these reads the same names the writer writes. A constant both
+halves need belongs beside the reading half, or the reading half has to import the
+writing one. Five registry rows hold them to §3.6's own rows.
+
+**§14 is named, not closed, and the document now says why.** Its five kinds of
+change that move the format identifier have no code copy. The identifier is a
+value in `verifier/manifest.js` (`FORMAT`) and is registered; what the five kinds
+do is say *when* that value must change, which is a rule about a writer that does
+not exist yet rather than a fact about an artifact. No fixture can demonstrate it
+— a file cannot be evidence about the next time the format moves. Thirteen of the
+fourteen gaps are closed, and this is the last open entry in the audit's record,
+accepted as a limit rather than worked around.
+
+**The registry's row count was wrong by one, and is right now.**
+`test/declarations.js` holds **44 rows**: 39 written by Step 22 and 5 added here.
+Step 22's entry and the audit doc both said 38, and both miscounted the same way —
+the row for `provenance.entry-author-fields` writes its `what` in double quotes
+because the line contains an apostrophe, and a count of single-quoted entries
+steps past it.
+
+**The disk that interrupted this pass was this suite's own doing.** The failures
+recorded in the middle of this work were writes failing with ENOSPC. The cause was
+`test/editor.test.js`: it launched a browser with a per-run profile in the system
+temp directory, never removed the profile, and never closed the browser — it
+killed the launcher process, which had already exited. That leaked a browser
+process tree and a 32 MB profile on every run: 158 directories and 5,049 MB, one
+per run, 141 of them in seventeen hours. It is fixed in the commit immediately
+before this one, which is why those interruptions are recorded here as what they
+were rather than as a regression in this pass.
+
+**The announcement is written, and it is a checked document.**
+`docs/announcing-charter.md` is a draft addressed to people outside this project,
+and it states numbers about the present: the kit's size and its recorded answers,
+the probe's cases, the corpus's containers, and the registry's row count.
+`test/counts.test.js` reads them the way it reads any other document's, which is
+what its fourth rule requires of every Markdown file in the tree — a document
+states a count about the present and is either read for it or excused with a
+reason. An announcement whose whole argument is that its claims can be checked by
+a stranger should not be the one document in the repository whose claims nothing
+checks. Reading it turned up what the rule had been missing: **nothing measured
+the registry's own row count**, which is how Step 22's entry and the audit doc
+both came to say 38 for a registry that held 39. That count is measured now, so
+the next drift of it fails a test instead of waiting for an audit.
+
+187 tests, 19 files.
 ## Unreleased — the declaration registry, and the half that makes it a mechanism
 
 Step 21 stopped at fourteen gaps because more than three instances of a pattern

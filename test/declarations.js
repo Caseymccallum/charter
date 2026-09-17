@@ -136,6 +136,41 @@ const CONTAINER = [
     exports: ['DOS_TIME'],
     compare: 'values',
   },
+  {
+    id: 'zip.metadata-disk-number-start',
+    what: 'disk number start is 0: a charter holds one disk',
+    spec: { section: '3.6 Metadata the format fixes', anchor: 'charter/0.1 fixes all of them, and', read: 'row-zero', arg: 'disk number start' },
+    exports: ['DISK_NUMBER_START'],
+    compare: 'values',
+  },
+  {
+    id: 'zip.metadata-internal-attributes',
+    what: 'the internal attributes word is 0',
+    spec: { section: '3.6 Metadata the format fixes', anchor: 'charter/0.1 fixes all of them, and', read: 'row-zero', arg: 'internal attributes' },
+    exports: ['INTERNAL_ATTRIBUTES'],
+    compare: 'values',
+  },
+  {
+    id: 'zip.metadata-external-attributes',
+    what: 'the external attributes word is 0',
+    spec: { section: '3.6 Metadata the format fixes', anchor: 'charter/0.1 fixes all of them, and', read: 'row-zero', arg: 'external attributes' },
+    exports: ['EXTERNAL_ATTRIBUTES'],
+    compare: 'values',
+  },
+  {
+    id: 'zip.metadata-extra-field',
+    what: 'the extra field is zero bytes long, in the local header and in the directory record',
+    spec: { section: '3.6 Metadata the format fixes', anchor: 'charter/0.1 fixes all of them, and', read: 'row-zero', arg: 'extra field' },
+    exports: ['EXTRA_FIELD_BYTES'],
+    compare: 'values',
+  },
+  {
+    id: 'zip.metadata-record-comment',
+    what: 'the directory record carries no comment: zero bytes',
+    spec: { section: '3.6 Metadata the format fixes', anchor: 'charter/0.1 fixes all of them, and', read: 'row-zero', arg: 'record comment' },
+    exports: ['RECORD_COMMENT_BYTES'],
+    compare: 'values',
+  },
 ];
 
 /** The manifest, the log, the keys and the document. */

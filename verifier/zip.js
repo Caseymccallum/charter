@@ -62,6 +62,28 @@ const FLAG_NAMES = new Map([
 export const MAX_VERSION_NEEDED = 20;
 
 /**
+ * The five fields charter/0.1 fixes at nothing (SPEC section 3.6).
+ *
+ * ZIP gives an entry a disk number, two attribute words, an extra field and a
+ * comment. A document has no use for any of them, and each is where something
+ * else can be smuggled into a file whose clock this format has already refused:
+ * the extra field is where a ZIP64 size or an extended timestamp goes, and the
+ * comment is bytes no reader here interprets.
+ *
+ * They are named rather than written as literals because the document names the
+ * value each one may hold, and a name is what `test/declarations.js` can hold to
+ * section 3.6's table. The writer reads them from here and so does the check
+ * that refuses a file which sets one, which is why they live in this module
+ * rather than in `zip-write.js`: the reader must not reach a writer (§11 of the
+ * module list, and `test/purity.test.js`).
+ */
+export const DISK_NUMBER_START = 0;
+export const INTERNAL_ATTRIBUTES = 0;
+export const EXTERNAL_ATTRIBUTES = 0;
+export const EXTRA_FIELD_BYTES = 0;
+export const RECORD_COMMENT_BYTES = 0;
+
+/**
  * The one "version made by" a charter/0.1 file may declare: 2.0 on host 0
  * (MS-DOS), which is what a tool that is not a file system writes.
  */
@@ -355,16 +377,16 @@ function evaluateMetadata(entries) {
     if (entry.date !== DOS_DATE || entry.time !== DOS_TIME) {
       return { ok: false, reason_code: REASON.MISMATCH, detail: `"${entry.name}" is stamped ${entry.date} at ${entry.time} in the DOS format, and charter/0.1 files carry no clock reading (the DOS epoch is date ${DOS_DATE}, time ${DOS_TIME})` };
     }
-    if (entry.diskNumber !== 0) {
+    if (entry.diskNumber !== DISK_NUMBER_START) {
       return { ok: false, reason_code: REASON.MISMATCH, detail: `"${entry.name}" says it starts on disk ${entry.diskNumber}, and a charter/0.1 file holds one disk` };
     }
-    if (entry.internalAttributes !== 0 || entry.externalAttributes !== 0) {
+    if (entry.internalAttributes !== INTERNAL_ATTRIBUTES || entry.externalAttributes !== EXTERNAL_ATTRIBUTES) {
       return { ok: false, reason_code: REASON.MISMATCH, detail: `"${entry.name}" declares file attributes (internal ${entry.internalAttributes}, external ${entry.externalAttributes}), which describe a file on a disk rather than a document` };
     }
-    if (entry.localExtraLength !== 0 || entry.extraLengthInCentral !== 0) {
+    if (entry.localExtraLength !== EXTRA_FIELD_BYTES || entry.extraLengthInCentral !== EXTRA_FIELD_BYTES) {
       return { ok: false, reason_code: REASON.EXTRA, detail: `"${entry.name}" declares an extra field of ${entry.localExtraLength} byte(s) in its local header and ${entry.extraLengthInCentral} byte(s) in the directory record, and charter/0.1 gives that field no meaning: it is where ZIP puts a ZIP64 size, an extended timestamp or a file attribute, in a second spelling no check here reads` };
     }
-    if (entry.commentLengthInCentral !== 0) {
+    if (entry.commentLengthInCentral !== RECORD_COMMENT_BYTES) {
       return { ok: false, reason_code: REASON.EXTRA, detail: `"${entry.name}" carries a ${entry.commentLengthInCentral}-byte comment in its directory record, and charter/0.1 gives that field no meaning either` };
     }
     for (const [what, field] of REPEATED_CLAIMS) {

@@ -61,6 +61,8 @@ import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { REGISTRY } from './declarations.js';
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, '..');
 
@@ -248,6 +250,7 @@ const MEASURED = Object.freeze({
   'declarations held': DECLARATIONS.length - NO_CODE_COPY - UNHELD,
   'declarations unheld': UNHELD,
   'declarations with no code copy': NO_CODE_COPY,
+  'declarations registered': REGISTRY.length,
 });
 
 /**
@@ -320,6 +323,21 @@ const CLAIMS = Object.freeze([
     file: 'docs/spec-declarations.md',
     pattern: /with no code copy at all \| \*\*(\d+)\*\*/,
     counts: ['declarations with no code copy'],
+  },
+  {
+    // The announcement is read like any other document here, because it makes
+    // the same kind of claim: a number about the present, in prose, addressed to
+    // a stranger who has no way to check it. It is also the document whose
+    // argument is that these numbers can be checked by anyone, so leaving its own
+    // numbers unchecked would be the one thing it must not do.
+    file: 'docs/announcing-charter.md',
+    pattern: /a kit of (\d+) artifacts with (\d+) recorded answers, (\d+) hand-built cases,\s+and (\d+) deliberately corrupted containers/,
+    counts: ['kit artifacts', 'kit recorded answers', 'probe artifacts', 'corpus artifacts'],
+  },
+  {
+    file: 'docs/announcing-charter.md',
+    pattern: /a registry of (\d+) declarations/,
+    counts: ['declarations registered'],
   },
 ]);
 

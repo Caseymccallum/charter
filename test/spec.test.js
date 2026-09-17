@@ -52,6 +52,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -589,5 +590,103 @@ test('the number each of those sentences states is the number of rows under it',
     seven.stated,
     `section 7 states ${seven.stated} fields and tabulates ${seven.rows.length}`,
   );
+});
+
+/**
+ * The rows of the table that follows an anchor, without its header.
+ *
+ * @param {string} text
+ * @param {string} anchor
+ * @returns {string[][]}
+ */
+function rowsAfter(text, anchor) {
+  const at = text.indexOf(anchor);
+  assert.notEqual(at, -1, `SPEC.md no longer says "${anchor}", and a test here reads the table under it`);
+  /** @type {string[][]} */
+  const rows = [];
+  for (const line of text.slice(at).split('\n')) {
+    if (!line.startsWith('| ')) {
+      if (rows.length > 0) break;
+      continue;
+    }
+    const cells = line.split('|').slice(1, -1).map((cell) => cell.trim());
+    if (cells.length < 2 || /^-+$/.test(cells[1])) continue;
+    rows.push(cells);
+  }
+  assert.ok(rows.length > 0, `the table under "${anchor}" has rows, and a test here reads them`);
+  return rows.slice(1);
+}
+
+/** Section 12.1, which fixes the shape a script consumes. */
+const JSON_FORM = section('12. Running it');
+
+/** The kit's accepted artifact, which is what the command line is asked about. */
+const ACCEPTED = join(ROOT, 'vectors', 'out', 'valid.charter');
+
+/**
+ * The JSON verdict the command line prints for the accepted artifact.
+ *
+ * The keys come from the command line's own output rather than from the
+ * reporter's source. Section 12.1 fixes an interface between two programs, so a
+ * test that read the object the reporter builds would agree with the reporter
+ * about a shape the document does not describe — which is the failure mode this
+ * whole file is about, one level out.
+ *
+ * @returns {Record<string, any>}
+ */
+function jsonVerdict() {
+  const cli = join(ROOT, 'cli', 'charter.js');
+  const run = spawnSync(process.execPath, [cli, 'verify', ACCEPTED, '--json'], { encoding: 'utf8' });
+  assert.equal(run.status, 0, `charter verify --json on the accepted artifact exited ${run.status}: ${run.stderr}`);
+  return JSON.parse(run.stdout);
+}
+
+test('the JSON verdict names the keys section 12.1 names, and no others', () => {
+  const declared = rowsAfter(JSON_FORM, 'JSON object, with these keys:').map((cells) => backticked(cells[0])[0]);
+  const printed = Object.keys(jsonVerdict());
+  assert.deepEqual(
+    [...printed].sort(),
+    [...declared].sort(),
+    `section 12.1 names [${[...declared].sort()}] and the command line prints [${[...printed].sort()}]: a key in one and not the other is an interface two programs disagree about, and the document is the one they have to agree on`,
+  );
+});
+
+test('the artifact object in the verdict names the keys section 12.1 names', () => {
+  const from = JSON_FORM.indexOf('is an object with');
+  const until = JSON_FORM.indexOf(' and it is `null` exactly');
+  assert.ok(from !== -1 && until > from, 'section 12.1 still describes what `artifact` is an object with');
+  const declared = backticked(JSON_FORM.slice(from, until));
+  const report = jsonVerdict();
+  assert.notEqual(report.artifact, null, 'the accepted artifact claims a format this build implements, so the verdict carries what it claims');
+  const printed = Object.keys(report.artifact);
+  assert.deepEqual(
+    [...printed].sort(),
+    [...declared].sort(),
+    `section 12.1 names [${[...declared].sort()}] for artifact and the command line prints [${[...printed].sort()}]`,
+  );
+});
+
+test('the nested shapes section 12.1 describes are the nested shapes the verdict has', () => {
+  const report = jsonVerdict();
+  const table = rowsAfter(JSON_FORM, 'JSON object, with these keys:');
+  const printed = [
+    ['summary', Object.keys(report.summary)],
+    ['checks', Object.keys(report.checks[0])],
+    ['limitations', Object.keys(report.limitations[0])],
+  ];
+  for (const [key, keys] of printed) {
+    const row = table.find((cells) => backticked(cells[0]).includes(key));
+    assert.notEqual(row, undefined, `section 12.1 has a row for \`${key}\``);
+    // The cell names the keys and then says something about one of them — the
+    // summary row names `total` twice, once as a key and once in "`total` is
+    // always 30" — so the claim is read as the set of names it uses.
+    const declared = [...new Set(backticked(row[1]))];
+    assert.deepEqual(
+      [...keys].sort(),
+      [...declared].sort(),
+      `section 12.1's ${key} row names [${[...declared].sort()}] and the verdict holds [${[...keys].sort()}]`,
+    );
+  }
+  assert.equal(report.summary.total, CHECK_IDS.length, 'section 12.1 says the total is always the count of checks');
 });
 

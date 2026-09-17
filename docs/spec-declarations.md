@@ -115,7 +115,7 @@ were true on the day it ran, and `test/counts.test.js` reads them back against
 the table's own rows rather than against today. What changed afterwards is that
 the mechanism those fourteen gaps called for now exists.
 
-`test/declarations.js` is a registry of **38 rows**, one per declaration, each
+`test/declarations.js` is a registry of **44 rows**, one per declaration, each
 naming a spec locator, the constants that state it again, and how the two are
 compared. `test/declarations.test.js` walks it. Two constants are exempted, each
 with a reason: `LF`, which is the byte 0x0a rather than a statement a sentence
@@ -129,20 +129,30 @@ than this format's.
 | 3 §3.3 method 0 or 8 | `zip.methods` |
 | 4 §3.3 three allowed flag bits | `zip.flags-allowed`, `zip.flag-utf8-name` |
 | 5 §3.3 five UNSUPPORTED flag bits | `zip.flags-unsupported` |
-| 6 §3.6 the fixed metadata values | `zip.metadata-version-made-by`, `zip.metadata-dos-date`, `zip.metadata-dos-time` — and five of the table's eight fields (disk number, the two attribute fields, the extra field, the comment) **have no exported constant at all**, so they are still held by nothing |
+| 6 §3.6 the fixed metadata values | `zip.metadata-version-made-by`, `zip.metadata-dos-date`, `zip.metadata-dos-time`, and — closed by the pass after this one — `zip.metadata-disk-number-start`, `zip.metadata-internal-attributes`, `zip.metadata-external-attributes`, `zip.metadata-extra-field`, `zip.metadata-record-comment` |
 | 7 §5 the algorithm enumeration | `manifest.algorithm` |
 | 8 §8 one algorithm, 32 and 64 bytes | `keys.algorithm`, `keys.algorithm-name`, `keys.public-key-bytes`, `keys.signature-bytes` |
 | 9 §10 four statuses | `status.statuses`, `status.status-count` |
 | 10 §10 three verdicts and their exit codes | `status.verdicts`, `status.exit-codes` |
 | 11 §11 five caveat statements | `caveats.count` |
-| 12 §12.1 the JSON verdict's eight keys | **still open**: the reporter's JSON is built in `cli/charter.js` and is not an exported constant, so the registry's enforcement half cannot see it |
-| 13 §12.1 the seven keys of `artifact` | **still open**, for the same reason |
-| 14 §14 the five kinds of change that move the identifier | `format.identifier` holds the identifier; the five-item list itself has no code copy and is **still open** |
+| 12 §12.1 the JSON verdict's eight keys | **closed by test**, not by a row: the reporter's JSON is built in `cli/charter.js` rather than exported, so the enforcement half cannot see it. Three tests in `test/spec.test.js` ask the command line for its own output and compare what it prints with what the section describes |
+| 13 §12.1 the seven keys of `artifact` | **closed by test**, for the same reason and by the same three |
+| 14 §14 the five kinds of change that move the identifier | `format.identifier` holds the identifier and is registered. The five-item list has no code copy and is **named rather than closed** — see the accounting below for why that is the end of it |
 
 The two smaller findings are held too: §6's "three requirements" and §9's "three
 consequences" now have rows (`content.requirements`, `chain.consequences`) that
 read the count word and count the items under it, and the ids those sections name
 are held against the register by `content.check-ids` and `chain.check-ids`.
+
+### §14: named, and not closed
+
+§14's five kinds of change that move the identifier have no code copy in them.
+The identifier is a value — `verifier/manifest.js` `FORMAT` — and it is registered
+as `format.identifier`. What the five kinds do is say *when* that value has to
+change, and that is a rule about a writer that does not exist yet rather than a
+fact about an artifact that does. No fixture can demonstrate it: a file cannot be
+evidence about the next time the format moves. The limit is known and accepted
+rather than worked around, and it is the only gap this audit leaves named.
 
 ### What the enforcement half caught that this audit did not
 
@@ -180,6 +190,46 @@ the document fails rather than being noticed later by an audit like this one.
 That change to the suite's structure was Step 22. The restraint is what made it
 possible: fourteen sentences patched one at a time would have left nothing to
 build a registry out of, and no reason to build one.
+
+## The accounting
+
+**The audit found fourteen gaps.** That is the number the table above records —
+claims `SPEC.md` states, code states a second time, and no test read the document
+to check — and the record is not rewritten. What follows is what became of them.
+
+**Thirteen of the fourteen are closed.**
+
+- **Ten closed by Step 22**, which is the registry itself. Gaps 1 to 5 and 7 to 11
+  have rows that read the document and compare what they find with the constants
+  that state it again.
+- **One closed in part by Step 22 and finished here.** Gap 6 is §3.6's table of
+  eight fixed fields. Three of the eight had a named constant from the start; the
+  other five — a disk number, the two attribute words, the extra field and the
+  record comment — were bare `0`s written into `verifier/zip-write.js`, so a row
+  would have had nothing to compare against. They are named constants in
+  `verifier/zip.js` now, because the reader that refuses a file setting one of
+  them reads those same names, and five rows hold them to the table's own rows.
+- **Two closed here, by test rather than by row.** §12.1's eight keys and
+  `artifact`'s seven are held by three tests in `test/spec.test.js` that ask the
+  command line for its own `--json` output and compare the shape it prints with
+  the shape the section describes. A registry row was never available for these:
+  the reporter's JSON is assembled in `cli/charter.js` and is not an exported
+  constant, so the enforcement half cannot see it, and a row with nothing to
+  compare against would have been a row that always agreed.
+
+**One is named, and that is the end of it — §14's five kinds of change that move
+the identifier**, for the reason given above. It is a rule about a writer that
+does not exist yet rather than a fact about an artifact, so no fixture can
+demonstrate it and no reader can compare it; a five-artifact corpus would have
+tested the writer rather than the document. The identifier those five kinds talk
+about is itself a registered value, so the part of §14 that something can hold is
+held. Naming it is acceptable because naming it is the whole of what can be done.
+
+`test/declarations.js` holds **44 rows** at the end of this pass: the 39 that
+Step 22 wrote, and the 5 §3.6 fields that were held by nothing until now. Two
+constants are exempted, both for reasons about an algorithm rather than about the
+format.
+
 
 ## The session
 

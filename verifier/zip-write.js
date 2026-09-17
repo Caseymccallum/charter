@@ -44,7 +44,14 @@ import { crc32 } from './crc32.js';
 import { LIMITS } from './limits.js';
 import { refuse } from './refuse.js';
 import { REASON } from './status.js';
-import { METHOD_STORED } from './zip.js';
+import {
+  DISK_NUMBER_START,
+  EXTERNAL_ATTRIBUTES,
+  EXTRA_FIELD_BYTES,
+  INTERNAL_ATTRIBUTES,
+  METHOD_STORED,
+  RECORD_COMMENT_BYTES,
+} from './zip.js';
 
 /** Version 2.0, host 0 (MS-DOS): written by a tool rather than by a file system. */
 export const VERSION_MADE_BY = 0x0014;
@@ -137,7 +144,7 @@ export function zipStore(entries, limits = LIMITS) {
       u32(size),
       u32(size),
       u16(nameBytes.length),
-      u16(0),
+      u16(EXTRA_FIELD_BYTES),
       nameBytes,
     ]);
     body.push(header, entry.data);
@@ -155,11 +162,11 @@ export function zipStore(entries, limits = LIMITS) {
         u32(size),
         u32(size),
         u16(nameBytes.length),
-        u16(0),
-        u16(0),
-        u16(0),
-        u16(0),
-        u32(0),
+        u16(EXTRA_FIELD_BYTES),
+        u16(RECORD_COMMENT_BYTES),
+        u16(DISK_NUMBER_START),
+        u16(INTERNAL_ATTRIBUTES),
+        u32(EXTERNAL_ATTRIBUTES),
         u32(offset),
         nameBytes,
       ]),
