@@ -2,7 +2,8 @@
  * The numbers these documents state about the present, read back off the disk.
  *
  * Every count in this project's prose — 56 artifacts, 28 adversarial cases, 27
- * Phase 1 cases, one artifact a tool wrote, 18 test files — is a claim, and until
+ * Phase 1 cases, 37 rows in the adversarial table, one artifact a tool wrote, 18
+ * test files — is a claim, and until
  * this file existed nothing checked one. The cost of that showed up twice in one
  * pass. `README.md` said "148 tests" for a suite that had run 166 since `edit`
  * landed, and `SPEC.md` section 13's accounting of the kit that the same section
@@ -10,7 +11,18 @@
  * moved the Phase 1 count to 27, and `produced-two-entries` was in no group at
  * all. Both were numbers nobody had read back.
  *
- * Three rules decide what belongs here.
+ * The first version of this file then made the same mistake in a smaller way, and
+ * the mistake is worth naming because it is the reason the last rule below exists.
+ * It stated its rule over "this project's prose" and then read five documents:
+ * `README.md`, `SPEC.md`, `docs/first-user.md`, and the two kit READMEs. Three
+ * documents that state counts about the present were read by nothing —
+ * `editor/README.md` ("all 56 artifacts in the conformance kit"),
+ * `implementations/python/README.md` (five counts, including the kit's and the
+ * probe's) and `test/adversarial.md` ("Totals: 37 cases"). The set of documents
+ * the rule applied to was never enumerated, so nothing could notice what it had
+ * left out; a rule about *what* to check is not complete until it says *where*.
+ *
+ * Four rules decide what belongs here.
  *
  * 1. **A number is checked against what holds it, not against a second copy of
  *    itself.** The kit's count is `vectors/expected.json` and the files beside it;
@@ -28,6 +40,14 @@
  *    them alone. The number of test *files* is on disk, so that one, and the name
  *    of every one of them, is checked — which is how a test file added by a pass
  *    that never mentioned it becomes a finding.
+ * 4. **The set of documents the rules apply to is itself checked.** Rules 1 to 3
+ *    say which numbers to check and how; none of them says where to look, and a
+ *    reading list that can only grow by somebody remembering to add to it leaves
+ *    everything else unread in silence. So every Markdown document in this
+ *    repository is discovered from the directory tree, and each one is either a
+ *    document a claim above reads or one of the two named in `NOT_READ` with its
+ *    reason. A document that is neither is a finding, and that is the check that
+ *    would have caught the three this file left out.
  *
  * A phrase that stops matching fails the test rather than going quietly
  * unchecked: this file reads these sentences, so a rewrite has to tell it where
@@ -186,6 +206,7 @@ const MEASURED = Object.freeze({
   'corpus artifacts': CORPUS_FILES.length,
   'phase 1 cases': PHASE_1.length,
   'adversarial cases': ADVERSARIAL.length,
+  'adversarial rows': adversarialRows().length,
   'tool-written artifacts': TOOL_WRITTEN.length,
   'test files': TEST_FILES.length,
   'editor page bytes': statSync(join(ROOT, 'editor', 'index.html')).size,
@@ -230,7 +251,52 @@ const CLAIMS = Object.freeze([
     counts: ['phase 1 cases', 'adversarial cases', 'tool-written artifacts', 'kit artifacts'],
   },
   { file: 'docs/first-user.md', pattern: /GET \/editor\/index\.html` with 200 and ([\d,]+) bytes/, counts: ['editor page bytes'] },
+  { file: 'editor/README.md', pattern: /asks it for all (\d+) artifacts in the conformance kit/, counts: ['kit artifacts'] },
+  { file: 'test/adversarial.md', pattern: /Totals: (\d+) cases, \d+ pass, \d+ fail/, counts: ['adversarial rows'] },
+  { file: 'implementations/python/README.md', pattern: /the probe's record the same (\d+) questions/, counts: ['probe artifacts'] },
+  { file: 'implementations/python/README.md', pattern: /asks them about (\d+) hand-mutated containers/, counts: ['corpus artifacts'] },
+  { file: 'implementations/python/README.md', pattern: /\*\*(\d+) fixtures, \d+ matched exactly\.\*\*/, counts: ['kit recorded answers'] },
+  { file: 'implementations/python/README.md', pattern: /reference CLI's output for all (\d+) fixtures/, counts: ['kit recorded answers'] },
+  { file: 'implementations/python/README.md', pattern: /and (\d+) hand-built artifacts that the kit does not/, counts: ['probe artifacts'] },
 ]);
+
+/**
+ * Every Markdown document in this repository, discovered from the tree rather
+ * than listed here.
+ *
+ * Discovery is the point: a list written by hand is a list that can forget, and
+ * the three documents this file used to leave out were left out by exactly that
+ * mechanism. `node_modules/` and `.git/` are skipped because neither is a
+ * document this project writes — the first is not checked in and the second is
+ * not prose. Paths are normalized to `/` so that the same names come out on
+ * Windows and on a POSIX machine.
+ *
+ * @type {string[]}
+ */
+const DOCUMENTS = readdirSync(ROOT, { recursive: true })
+  .map((entry) => String(entry).replaceAll('\\', '/'))
+  .filter((path) => path.endsWith('.md') && !path.startsWith('node_modules/') && !path.startsWith('.git/'))
+  .sort();
+
+/**
+ * The documents this file reads no count out of, and why each is not one.
+ *
+ * Both are here for one reason, which is that a count about the present is what
+ * this file checks and neither states one. An entry has to give a reason rather
+ * than just a name: "not read" is the thing that went unnoticed for three
+ * documents, and a name without a reason is how it would go unnoticed again.
+ *
+ * @type {Record<string, string>}
+ */
+const NOT_READ = Object.freeze({
+  'CHANGELOG.md':
+    'a record of what was true when a pass closed: a count inside it is history, and rewriting one to match today would falsify the record rather than check it',
+  'NAMING.md':
+    'a naming convention, which argues about what a name should be and states no count about the tree at all',
+});
+
+/** The documents a claim above reads a count out of, which rule 4 is stated over. */
+const READ = Object.freeze([...new Set(CLAIMS.map((claim) => claim.file))].sort());
 
 test('each record describes the artifacts beside it', () => {
   const records = [
@@ -310,4 +376,48 @@ test('the block that states these numbers says where each kind of number comes f
     readme.includes('`test/counts.test.js` checks the first kind'),
     'README.md no longer says which of the two kinds this file checks',
   );
+});
+
+/**
+ * Rule 4, which is the rule this file exists in its present form for.
+ *
+ * Rules 1 to 3 say which numbers to check and how, and a rule about *what* is not
+ * complete until it says *where*: the first version read five documents, and the
+ * three it left out stated counts that nothing checked. The remedy was to discover
+ * the documents from the tree and name the exempt ones with a reason, and that
+ * remedy sat here as two declarations — `DOCUMENTS` and `NOT_READ` — that no test
+ * consumed. So the rule was prose for a pass: a new document could have been added
+ * with a count in it and the suite would have stayed green while reading none of it.
+ *
+ * The data was right when the check was finally written, and the check passed on its
+ * first run, which is the point worth keeping: what was missing was the assertion,
+ * not the list. A rule that nothing runs is not a rule, and this is the file whose
+ * business that is — `test/spec.test.js` states the same thing from the other side
+ * ("a rule that no check enforces is not a rule").
+ */
+test('every document is either read for a count or named as one that states none', () => {
+  const exempt = Object.keys(NOT_READ);
+  for (const file of READ) {
+    assert.ok(
+      DOCUMENTS.includes(file),
+      `${file} is named as a document a claim reads a count out of, and there is no such Markdown document in this repository`,
+    );
+  }
+  assert.deepEqual(
+    [...READ, ...exempt].sort(),
+    DOCUMENTS,
+    'the documents this file reads a count out of, plus the ones it says state none, are not the Markdown documents this repository holds: a document in neither list is read by nothing, which is how the three this file left out went unnoticed',
+  );
+  const both = READ.filter((file) => exempt.includes(file));
+  assert.deepEqual(
+    both,
+    [],
+    `a document is read for a count and excused from being read at the same time: ${both.join(', ')} — the reason beside it is not a reason`,
+  );
+  for (const [file, reason] of Object.entries(NOT_READ)) {
+    assert.ok(
+      typeof reason === 'string' && reason.includes(' ') && reason.length >= 40,
+      `${file} is excused from these rules with "${reason}", and an excuse has to give a reason rather than a name: "not read" is the thing that went unnoticed for three documents`,
+    );
+  }
 });

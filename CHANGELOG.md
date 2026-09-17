@@ -4,6 +4,73 @@ Recorded because they are decisions about published behaviour, not internal
 tidying. The format identifier in `manifest.format` changes when section 14 of
 [SPEC.md](SPEC.md) changes; this file records what changed, when, and why.
 
+## Unreleased — three documents nothing read, and a rule with no test behind it
+
+The suite that checks these documents' counts was stated over "this project's
+prose" and then read five of them: `README.md`, `SPEC.md`, `docs/first-user.md`,
+and the two kit READMEs. Three documents that state counts about the present were
+read by nothing:
+
+- `editor/README.md` — "asks it for **all 56 artifacts** in the conformance kit".
+- `implementations/python/README.md` — five counts: the probe's 27 questions, the
+  34 hand-mutated containers, "**56 fixtures, 56 matched exactly.**", "the
+  reference CLI's output for all 56 fixtures", and the 27 hand-built artifacts the
+  kit does not cover.
+- `test/adversarial.md` — "Totals: **37 cases**, 37 pass, 0 fail."
+
+None of the three was wrong. That is the finding: the rule said *what* to check and
+never said *where*, so the documents it applied to were whatever somebody happened
+to list, and a document nobody listed was unread in silence. Nine of the ten
+Markdown documents in this repository state a count about the present; the tenth
+that does not is `NAMING.md`, and `CHANGELOG.md` is history by definition.
+
+### The rule now names its reading list, and the list is checked
+
+`test/counts.test.js` discovers every Markdown document from the directory tree
+rather than from a list, and each one is either a document a claim reads a count
+out of or one of the two excused in `NOT_READ` **with a reason**. A document in
+neither list fails the suite, which is what would have caught these three. Two
+consequences follow from that shape, and both are deliberate: a new document with a
+count in it is a finding rather than an omission, and an excuse has to be a sentence
+rather than a name — "not read" is exactly what went unnoticed, so a name with no
+reason beside it fails too.
+
+Seven claims were added: one for `editor/README.md`, one for `test/adversarial.md`,
+and five for `implementations/python/README.md`.
+
+### The near-miss this pass actually turned up
+
+The reading list was already right when the assertion was finally written, and the
+assertion passed on its first run. `DOCUMENTS` and `NOT_READ` had been declared a
+pass earlier, with the reasons written out — and nothing consumed them. So the fix
+had been *data only* and unenforced: a new document could have been added with a
+count in it and the suite would have stayed green while reading none of it. What was
+missing was the assertion, not the list. That is the same thing `test/spec.test.js`
+states from the other side — "a rule that no check enforces is not a rule" — and it
+is worth recording that this file broke its own rule for a pass while claiming to be
+the file whose business that is.
+
+One claim was also written from memory rather than from the sentence. The Python
+README states its comparison across a line break — "compared key for key against
+the / reference CLI's output for all 56 fixtures" — and a pattern that included the
+leading `the` never matched anything. The pattern now reads the words that are on
+one line. A claim has to be copied out of the document it is about, which is the
+whole reason this file reads sentences rather than deriving numbers.
+
+### What changed
+
+- `test/counts.test.js` reads eight documents instead of five, holds
+  `adversarial rows` as a measured value (37), and grew the rule-4 test above. Its
+  header now lists the counts it holds, including the 37 rows of the adversarial
+  table, which no document's number was checked against before.
+- `README.md` says what the third thing is that this file refuses — a document
+  nobody reads — where it explains which counts the suite holds and which the run
+  prints.
+- The count of tests moved from 172 to **173** for the added test, and is updated
+  in the three places the README states it. It stays the one number these documents
+  state that the suite cannot check, for the reason recorded above: a suite cannot
+  run itself to read the number it is about to print.
+
 ## Unreleased — the command line's sixth verb, and the sentence that denied it
 
 `edit` is the producer's second verb, and three sentences about this producer were
