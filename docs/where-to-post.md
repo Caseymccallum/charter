@@ -1,5 +1,15 @@
 # Where to post it
 
+> **On hold, and why.** This plan was written before anyone asked whether the format has a
+> job. `docs/who-needs-this.md` asks it, and the answer is that one job survives the
+> format's own five caveats — release integrity for a document handed to a stranger — and
+> that the embedded history is not part of it. Posting any of this before that question is
+> answered with a real person buys one look and no adoption. The venues, the vocabulary
+> notes and the questions below are kept because they are the right plan for *after* the
+> gate, not because the gate is open. (The archives lists in particular should be read
+> alongside the caveat that the custodian can rewrite the history, which is the threat that
+> audience cares most about.)
+
 `docs/announcing-charter.md` is the text. This file is the plan for putting it in
 front of people, because that is now the project's whole remaining problem.
 

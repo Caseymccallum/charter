@@ -88,9 +88,18 @@ deliberately does not try to be. Identification answers "is this the kind of fil
 think it is", which is a question every ingest pipeline asks long before it asks whether
 the file is true.
 
-**2. The announcement, which is written and unposted.** Nothing else compounds until a
-person with a document uses this. It is the highest-leverage act available and it costs
-nothing but the decision to do it.
+**2. The announcement — corrected, and demoted.** This file first ranked the announcement
+second, on the grounds that nothing compounds without a user.
+
+*That was right about the symptom and wrong about the order.* A user is not the first thing
+missing; an established job is. `docs/who-needs-this.md` was written afterwards to ask
+whether anyone needs this at all, and its answer is that exactly one job survives the
+format's own caveats, that the embedded history is not part of it, and that the question
+has never been put to a person. Announcing before that is answered buys one look and no
+adoption, and the look does not repeat.
+
+So the order below is the order *after* that question is answered. Until then this list is
+a plan on hold, and the file above it is the gate.
 
 **3. A third implementation, in a language nobody here has used.** This is free research,
 and it is the only thing that has ever found a hole in `SPEC.md`: the Python port

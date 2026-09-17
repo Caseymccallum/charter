@@ -384,6 +384,8 @@ const NOT_READ = Object.freeze({
     'a plan of work: the numbers it states are targets for future passes or the measurements of one demonstration, and neither kind is a count of the tree',
   'docs/reach.md':
     'a plan: the counts in its identification table are a measurement of the tree as it stood when the plan was written, taken by the command the plan describes, and the plan\'s own next step is to bring that signature under a test — until then they are a snapshot of a measurement rather than a claim the suite holds',
+  'docs/who-needs-this.md':
+    "an analysis of what job the format does: its numbers are elapsed time, a commit count, and the length of lists stated in other documents rather than counts of the tree. The one that could drift — that five caveats are printed with every verdict — is held elsewhere: the declaration registry's `caveats.count` row reads the count before section 11's \"statements with every verdict\" and compares it with `CAVEATS.length`, so repeating the number here restates a claim that is checked where it is made",
 });
 
 /** The documents a claim above reads a count out of, which rule 4 is stated over. */
