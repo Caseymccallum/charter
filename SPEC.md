@@ -1218,22 +1218,23 @@ node vectors/build.js          # rebuild the artifacts (the author's program)
 node vectors/build.js --check  # rebuild in memory, and refuse if the record is stale
 ```
 
-The 26 Phase 1 cases are the ways an artifact can be wrong. `valid` is the
+The 27 Phase 1 cases are the ways an artifact can be wrong. `valid` is the
 artifact all of them are variations on, and `valid-deflate` is the same document
 with deflated entries: they verify identically, because the compression method is
 not part of what the document is. The container cases are `not-a-zip`,
-`missing-entry`, `extra-entry`, `duplicate-entry`, `encrypted-flag`,
-`unsupported-method`, `wrong-declared-size`, `wrong-declared-crc` and
-`stamped-by-a-clock` (a DOS stamp left in by a writer that behaved like a file
-system). The document cases are `noncanonical-manifest`,
-`manifest-extra-field`, `manifest-field-unreadable`, `unsupported-format`,
-`content-bom` and `content-tampered`. The log cases are `unterminated-log`,
-`truncated-log`, `empty-log`, `entry-extra-field` and `entry-edited`. The
-signed-claim cases are `bad-manifest-signature`, `foreign-key-entry` and
-`history-rewritten`.
+`missing-entry`, `unreadable-manifest`, `extra-entry`, `duplicate-entry`,
+`encrypted-flag`, `unsupported-method`, `wrong-declared-size`,
+`wrong-declared-crc`, `entry-expands-past-ceiling` (an entry whose bytes expand
+past the ceiling section 3.7 sets) and `stamped-by-a-clock` (a DOS stamp left in
+by a writer that behaved like a file system). The document cases are
+`noncanonical-manifest`, `manifest-extra-field`, `manifest-field-unreadable`,
+`unsupported-format`, `content-bom` and `content-tampered`. The log cases are
+`unterminated-log`, `truncated-log`, `empty-log`, `entry-extra-field` and
+`entry-edited`. The signed-claim cases are `bad-manifest-signature`,
+`foreign-key-entry` and `history-rewritten`.
 
-The other 28 are the **adversarial pass**, and its enumeration is written down
-in `test/adversarial.md` before it is run: one row per mutation, with the
+The 28 that follow are the **adversarial pass**, and its enumeration is written
+down in `test/adversarial.md` before it is run: one row per mutation, with the
 verdict and the reason codes the specification requires, and the observed
 result beside them. The rows cover the container (three points in the
 truncation neighborhood, each of the three entries missing in turn, a
@@ -1245,6 +1246,15 @@ stale signature), the signature and the key (one byte short, one bit flipped,
 signed by another key, a swapped public key, a key id that does not derive from
 the key beside it), and the chain (an unknown parent, a fork, reordering, an
 entry removed from the middle, a head that describes other content).
+
+One artifact is neither. **`produced-two-entries`** is `charter seal` followed by
+`charter edit`: the only bytes in the kit that `vectors/build.js` does not write.
+It is here because the question the rest of the kit asks — does a second writer
+agree with the reader — cannot be asked of one implementation's own output, and the
+question a producer has to answer is whether a history *it* wrote is readable by
+readers that did not write it. **The 27 + 28 + 1 above are the 56 artifacts
+`vectors/expected.json` records**: every case in exactly one group, and none left
+over.
 
 Two rows have to come back `VERIFIED`:
 

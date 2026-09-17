@@ -4,6 +4,84 @@ Recorded because they are decisions about published behaviour, not internal
 tidying. The format identifier in `manifest.format` changes when section 14 of
 [SPEC.md](SPEC.md) changes; this file records what changed, when, and why.
 
+## Unreleased — two artifacts nobody accounted for, and the counts nobody read back
+
+`charter edit` left the kit one artifact richer and the documentation two counts
+poorer, and this pass followed both the wrong way.
+
+The first is the specification's own accounting of its own kit. Section 13 tells a
+reader to replay 56 artifacts and then divides them: "The 26 Phase 1 cases … The
+other 28 are the **adversarial pass**." That is 54. The case the last pass added —
+an entry whose bytes expand past section 3.7's ceiling — went into the Phase 1
+group and moved that count to 27. `produced-two-entries`, the one artifact in the
+kit that `vectors/build.js` does not write, was in neither group, because section
+13 had never had a group for it: the paragraph that describes what the kit holds
+described 54 of the bytes the same section asked a reader to run, and the two it
+left out were the two most recent passes had added. Nothing about the verifier was
+wrong. Everything about the accounting was, and no reading of section 13 would have
+said so.
+
+The second is smaller and worse, because it was in the first file anyone reads.
+`README.md` said "148 tests" in three places for a suite that had run 166 since
+`edit` landed, and said its test list was "including" a set of ten files in a
+directory of seventeen. A count that nobody checks is a sentence that reads exactly
+like a true one.
+
+### What a number in a document has to be
+
+There are two kinds of count in this project's prose, and they are not the same
+claim.
+
+- **A number a record on disk holds.** The kit's artifacts and its recorded
+  answers, the probe's and the corpus's, the adversarial pass, the Phase 1 cases,
+  the test files, the size of the editor's page: each is held by something a
+  reader can open. Those are checked.
+- **A number a run prints.** The tests `npm test` performs, the tests the Python
+  port's suite performs, the sweep's field-level questions: a number like that
+  cannot be read back from a tree, so a document states it beside the command that
+  prints it. That is why the README's counts now sit next to their commands, and
+  why the README says which of the two kinds each one is.
+
+`test/counts.test.js` is where the first kind is checked. It reads the sentences
+themselves — a phrase that stops matching fails the test rather than going quietly
+unchecked, the same arrangement section 10 has with `test/spec.test.js` — and it
+holds the numbers against the record and against the directories of artifacts they
+are about. It also refuses the two shapes of drift this pass found:
+
+- **A kit case in no group.** Section 13's three groups — the Phase 1 cases, the
+  adversarial pass, and the one artifact a tool wrote — must be exactly the names
+  `vectors/expected.json` holds, each in one group and none left over. A case added
+  to the kit and described by nothing now fails the suite, which is how the ceiling
+  case and the tool-written artifact were found.
+- **A test file nobody names.** Every `*.test.js` in `test/` is named in the
+  README's layout row, and every name there is a file. `runtime.test.js` — the file
+  that holds section 12's runtime promise as a test — was added by the pass that
+  patched that hole and was named nowhere.
+
+`CHANGELOG.md` is deliberately not read by it. A count in a changelog entry was
+true when the entry was written, and rewriting one to match today would falsify the
+record rather than check it; the same reasoning keeps every historical count in
+this file exactly as it was, including the ones this pass made stale.
+`docs/first-user.md` is read for one present-tense claim only: the size of the page
+it says it served before the session it is waiting for.
+
+### What changed, and what did not
+
+- Section 13 now says **27 + 28 + 1 = 56**, names `unreadable-manifest` and
+  `entry-expands-past-ceiling` among the Phase 1 cases, and gives
+  `produced-two-entries` the paragraph it never had: the artifact `charter seal`
+  followed by `charter edit` produces, here because the question a *producer* has to
+  answer — is a history it wrote readable by readers that did not write it — cannot
+  be asked of a writer's own bytes.
+- `README.md` states the count the suite actually runs, names all of its test
+  files, and says where each of its counts comes from.
+- No artifact, no recorded answer and no verdict moved: this pass changed prose and
+  added a test. The kit is still 56 artifacts with the same digests; the suite is
+  171 tests; the port's is still 114; the probe 27; the corpus 34; the sweep 212
+  field-level questions, and both implementations still answer every one the same
+  way. The first-user session has still not been run, and `docs/first-user.md` still
+  says so.
+
 ## Unreleased — `charter edit`, and the two holes a second verb found
 
 `seal` begins a history and nothing in this project could write the second entry in
