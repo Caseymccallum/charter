@@ -108,6 +108,54 @@ by nothing**, so a section could gain a fourth bullet while its sentence said
 three. The same is true of §11's "five statements", where `test/editor.test.js`
 asserts the number 5 and never opens the document.
 
+## What the registry did with this
+
+The table above is the audit's record of Step 21 and is not rewritten: its totals
+were true on the day it ran, and `test/counts.test.js` reads them back against
+the table's own rows rather than against today. What changed afterwards is that
+the mechanism those fourteen gaps called for now exists.
+
+`test/declarations.js` is a registry of **38 rows**, one per declaration, each
+naming a spec locator, the constants that state it again, and how the two are
+compared. `test/declarations.test.js` walks it. Two constants are exempted, each
+with a reason: `LF`, which is the byte 0x0a rather than a statement a sentence
+could disagree with, and `DIGEST_BYTES`, whose width is the algorithm's rather
+than this format's.
+
+| The gap | The registry row that now holds it |
+| --- | --- |
+| 1 §2 three entries | `entries.required`, `entries.names` |
+| 2 §3.2 feature level at most 20 | `version.max-version-needed`, `version.version-needed` |
+| 3 §3.3 method 0 or 8 | `zip.methods` |
+| 4 §3.3 three allowed flag bits | `zip.flags-allowed`, `zip.flag-utf8-name` |
+| 5 §3.3 five UNSUPPORTED flag bits | `zip.flags-unsupported` |
+| 6 §3.6 the fixed metadata values | `zip.metadata-version-made-by`, `zip.metadata-dos-date`, `zip.metadata-dos-time` — and five of the table's eight fields (disk number, the two attribute fields, the extra field, the comment) **have no exported constant at all**, so they are still held by nothing |
+| 7 §5 the algorithm enumeration | `manifest.algorithm` |
+| 8 §8 one algorithm, 32 and 64 bytes | `keys.algorithm`, `keys.algorithm-name`, `keys.public-key-bytes`, `keys.signature-bytes` |
+| 9 §10 four statuses | `status.statuses`, `status.status-count` |
+| 10 §10 three verdicts and their exit codes | `status.verdicts`, `status.exit-codes` |
+| 11 §11 five caveat statements | `caveats.count` |
+| 12 §12.1 the JSON verdict's eight keys | **still open**: the reporter's JSON is built in `cli/charter.js` and is not an exported constant, so the registry's enforcement half cannot see it |
+| 13 §12.1 the seven keys of `artifact` | **still open**, for the same reason |
+| 14 §14 the five kinds of change that move the identifier | `format.identifier` holds the identifier; the five-item list itself has no code copy and is **still open** |
+
+The two smaller findings are held too: §6's "three requirements" and §9's "three
+consequences" now have rows (`content.requirements`, `chain.consequences`) that
+read the count word and count the items under it, and the ids those sections name
+are held against the register by `content.check-ids` and `chain.check-ids`.
+
+### What the enforcement half caught that this audit did not
+
+The registry was built from this table and then made to account for **every**
+constant `verifier/**` exports. That turned up declarations the grep for five
+prose shapes never asked about: `ALGORITHM_NAME`, `HASH_NAME`,
+`DIGEST_HEX_LENGTH`, `LEVEL`, `CHECK_REGISTRY`, `CHECK_IDS`, `FLAG_UTF8_NAME`,
+`VERSION_NEEDED`, and the three entry names held individually as well as in the
+list. Two of them were more than bookkeeping: §3.3's allowed and unsupported flag
+sets were declared in `verifier/zip.js` as **module-private constants**, so the
+audit's row 4 and row 5 said "the code declares it again" about something nothing
+outside the module could see. They are exported now, and registered.
+
 ## What this audit did not do, and why
 
 **The audit found fourteen gaps, and the rule for this work says that more than
@@ -129,8 +177,9 @@ in `SPEC.md` must appear in the registry, checked the way §10's registry is
 checked in both directions, so a declaration added to the code and left out of
 the document fails rather than being noticed later by an audit like this one.
 
-That is a change to the test suite's structure rather than an addition to it, and
-it is the next step, not this one.
+That change to the suite's structure was Step 22. The restraint is what made it
+possible: fourteen sentences patched one at a time would have left nothing to
+build a registry out of, and no reason to build one.
 
 ## The session
 

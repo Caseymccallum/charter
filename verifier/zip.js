@@ -31,15 +31,23 @@ export const METHOD_DEFLATE = 8;
  * UTF-8. Anything else (encryption, a trailing data descriptor, a masked
  * header, a patched payload) is a feature this verifier does not implement and
  * is reported as UNSUPPORTED rather than ignored.
+ *
+ * Exported because it is a declaration SPEC.md section 3.3 makes in prose, and
+ * a declaration has to be reachable to be held to the document it is declared
+ * in: `test/declarations.js` registers this constant with the sentence that
+ * states the same three bits, and the reader compares them.
  */
-const FLAGS_ALLOWED = 0x0002 | 0x0004 | 0x0800;
+export const FLAGS_ALLOWED = 0x0002 | 0x0004 | 0x0800;
 
 /**
  * The bits that change how an entry's bytes have to be read, as opposed to how
  * the writer happened to produce them. An archive that sets one of these is not
  * an archive this reader has read.
+ *
+ * Exported for the same reason as `FLAGS_ALLOWED`: section 3.3 names these five
+ * bits, and the registry holds the two lists together.
  */
-const STRUCTURAL_FLAGS = 0x0001 | 0x0008 | 0x0020 | 0x0040 | 0x2000;
+export const STRUCTURAL_FLAGS = 0x0001 | 0x0008 | 0x0020 | 0x0040 | 0x2000;
 
 const FLAG_NAMES = new Map([
   [0x0001, 'encrypted'],

@@ -4,6 +4,59 @@ Recorded because they are decisions about published behaviour, not internal
 tidying. The format identifier in `manifest.format` changes when section 14 of
 [SPEC.md](SPEC.md) changes; this file records what changed, when, and why.
 
+## Unreleased — the declaration registry, and the half that makes it a mechanism
+
+Step 21 stopped at fourteen gaps because more than three instances of a pattern
+is answered by a mechanism rather than by more tests. This is it:
+`test/declarations.js`, **38 rows**, one per declaration `SPEC.md` makes that
+`verifier/**` states a second time. A row carries a spec locator (a section, an
+anchor that must appear in it, and how to read the claim between that anchor and
+its end), the constants that state it again, and the comparison — `set`,
+`values`, `count`, `ids`, `bits`, `member`, `bullets`. Nothing in a row is
+transcribed: `test/declarations.test.js` is the only thing that walks the table.
+
+**The enforcement half is the point.** Every constant `verifier/**` exports is
+either named by a row or exempted with a reason, and the check runs both ways: a
+constant added without a row fails, a row naming a constant no longer exported
+fails, and an exemption for a constant that is registered — or gone — fails. Two
+constants are exempted, and both are facts about an algorithm rather than
+statements about the format: `LF`, which is the byte `0x0a`, and `DIGEST_BYTES`,
+whose width is SHA-256's. The exemption list is two entries long, which is what
+the task said would decide whether this was buildable at all.
+
+**It caught something the audit did not.** Building the registry against *every*
+export turned up declarations the grep for five prose shapes never asked about —
+`ALGORITHM_NAME`, `HASH_NAME`, `DIGEST_HEX_LENGTH`, `LEVEL`, `CHECK_REGISTRY`,
+`CHECK_IDS`, `FLAG_UTF8_NAME`, `VERSION_NEEDED`, and the three entry names held
+individually as well as in the list. Two of them were more than bookkeeping:
+section 3.3's allowed and unsupported flag sets were **module-private constants**
+in `verifier/zip.js`, so the audit's rows 4 and 5 described a declaration that
+nothing outside the module could see. They are exported now, with the reason in
+their doc comments, and registered.
+
+Three of the audit's gaps had no reader and now have one. Section 10's four
+statuses and its three verdicts with their exit codes are read out of section
+10's own tables — until now `test/result.test.js` held them to a list transcribed
+inside that test, which pinned the code and left the document free to drift.
+Section 6's "three requirements" and section 9's "three consequences" are read as
+count words against the number of items beneath them, which is the shape section
+5's and section 7's counts already had.
+
+**Not everything closed, and the audit doc says so.** Section 12.1's two gaps —
+the JSON verdict's eight keys and `artifact`'s seven — remain open: the reporter's
+JSON is built in `cli/charter.js` and is not an exported constant, so the
+enforcement half cannot see it and a row would have nothing to compare with.
+Section 3.6's table fixes eight fields and only three have exported constants, so
+five of its rows are still held by nothing. Section 14's five-item list has no
+code copy; only the identifier is held.
+
+Proved by mutation, four ways, each caught by the check that owns it: a constant
+added to `verifier/**` and registered nowhere; a status renamed in the code
+**and** in the transcribed test; a row removed from the registry; and section 6's
+count word moved from three to four without touching the items under it.
+
+184 tests, 19 files.
+
 ## Unreleased — the audit of the document's own lists, and fourteen gaps left open
 
 Step 20 found four declarations that code states a second time while no test held
