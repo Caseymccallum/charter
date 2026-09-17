@@ -486,8 +486,41 @@ async function openBrowser(browser, url, downloads) {
     product: version.result.product,
     jsVersion: version.result.jsVersion,
     close: async () => {
+      // The process this file spawned is Chrome's launcher, not its browser: it
+      // exits as soon as the browser process is up, so killing it reaches
+      // nothing. What is left running is the browser itself — a renderer, a GPU
+      // process and a crash handler under it — holding the profile open and
+      // outliving the test. Asking the browser to close over the same protocol
+      // this file already speaks is what ends that whole tree; a browser that is
+      // never ended is a leaked profile of tens of megabytes per run, and a
+      // leaked process tree, for the life of the machine.
+      //
+      // Asked with a deadline: a browser that is already gone does not answer,
+      // and a test that waits for an answer that never comes does not finish.
+      await Promise.race([
+        send('Browser.close').catch(() => {}),
+        new Promise((done) => setTimeout(done, 5000)),
+      ]);
       socket.close();
-      child.kill();
+      if (child.exitCode === null && child.signalCode === null) {
+        const ended = new Promise((done) => child.once('exit', done));
+        child.kill();
+        await ended;
+      }
+      // The browser's helpers let go of the profile a moment after the browser
+      // does, and Windows will not remove a directory something still holds, so
+      // this polls rather than trying once. Not throwing is deliberate: a temp
+      // directory that could not be removed is a leak worth knowing about, but
+      // it is not a fact about charter, and it must not fail this suite — nor
+      // keep the courier in the caller from being closed after it.
+      for (let attempt = 0; attempt < 40; attempt += 1) {
+        try {
+          rmSync(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+          return;
+        } catch {
+          await new Promise((done) => setTimeout(done, 250));
+        }
+      }
     },
   };
 }
@@ -615,6 +648,7 @@ test('the editor in a real browser', { timeout: 300000 }, async (t) => {
   t.after(async () => {
     await browser.close();
     await served.close();
+    rmSync(downloads, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   });
 
   /** Wait until the page has wired itself up. */
@@ -703,6 +737,9 @@ test('the editor in a real browser', { timeout: 300000 }, async (t) => {
 
   await t.test('a document sealed in the page is the document the command line seals', async () => {
     const work = mkdtempSync(join(tmpdir(), 'charter-editor-seal-'));
+    // This directory holds a private key, so it is the one temp directory here
+    // that must not outlive the test that made it.
+    t.after(() => rmSync(work, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
     const key = await generateKeyPair();
     const keyPath = join(work, 'key.pem');
     writeFileSync(keyPath, key.private_pem);
